@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:ascend/theme.dart';
 import 'package:ascend/models/models.dart';
-
 import 'package:ascend/state/app_state.dart';
-
 import 'package:ascend/widgets/confetti_overlay.dart';
+import 'package:ascend/widgets/challenge_card.dart'; // Import new widget
 
 class PlannerScreen extends StatefulWidget {
   const PlannerScreen({super.key});
@@ -37,10 +37,14 @@ class _PlannerScreenState extends State<PlannerScreen> {
     setState(() {});
   }
 
-  void _addChallenge(String name, double target, ChallengeType type, ChallengeAttribute attribute) {
-    String unit = 'reps';
-    if (type == ChallengeType.time) unit = 'min';
-    if (type == ChallengeType.hydration) unit = 'ml';
+  // --- LOGIC ---
+
+  void _addChallenge(String name, double target, ChallengeType type, ChallengeAttribute attribute, {String? unitOverride}) {
+    String unit = unitOverride ?? 'reps';
+    if (unitOverride == null) {
+      if (type == ChallengeType.time) unit = 'min';
+      if (type == ChallengeType.hydration) unit = 'ml';
+    }
 
     appState.addChallenge(Challenge(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -51,20 +55,66 @@ class _PlannerScreenState extends State<PlannerScreen> {
       type: type,
       attribute: attribute,
     ));
+    HapticFeedback.mediumImpact();
+  }
+
+  void _addStack(RoutineStack stack) {
+    HapticFeedback.heavyImpact();
+    // Delay slightly for effect
+    for (var template in stack.tasks) {
+      // Clone the template to a new challenge instance
+      _addChallenge(template.name, template.target, template.type, template.attribute, unitOverride: template.unit);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("ROUTINE LOADED: ${stack.title}"),
+        backgroundColor: AscendTheme.secondary,
+        behavior: SnackBarBehavior.floating,
+      )
+    );
   }
 
   void _deleteChallenge(String id) {
     appState.removeChallenge(id);
+    HapticFeedback.selectionClick();
+  }
+
+  void _editChallengeTarget(Challenge challenge, double newTarget) {
+    setState(() {
+      // In a real app we might want to update this in AppState cleaner
+      // But for now, direct mutation on the reference works because of listeners
+      // Actually appState.challenges is a list of objects. 
+      // We should probably add a method in AppState to be safe, but this works for MVP.
+      // Ideally: appState.updateTarget(challenge.id, newTarget);
+      // We will just do a forced notify.
+      // Since Dart objects are references, 'challenge' is the one in the list.
+      // But 'target' is final in our model? 
+      // Wait, in previous code Challenge.target was final. We need to check models.dart.
+      // If it's final, we replace the object.
+      
+      // Let's assume we replace the challenge with a new one with updated target
+      appState.removeChallenge(challenge.id);
+      appState.addChallenge(Challenge(
+        id: challenge.id,
+        name: challenge.name,
+        current: challenge.current,
+        target: newTarget,
+        unit: challenge.unit,
+        type: challenge.type,
+        attribute: challenge.attribute,
+        isRunning: challenge.isRunning
+      ));
+    });
   }
 
   void _updateProgress(Challenge challenge, double amount) {
-    // Check if already completed to avoid re-triggering completion effects if handled
     bool wasCompleted = challenge.isCompleted;
-    
     appState.updateChallengeProgress(challenge, amount);
+    HapticFeedback.lightImpact();
 
     if (!wasCompleted && challenge.isCompleted) {
       _confettiController.play();
+      HapticFeedback.heavyImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("PROTOCOL COMPLETED: ${challenge.name}"),
@@ -76,15 +126,13 @@ class _PlannerScreenState extends State<PlannerScreen> {
   }
 
   void _toggleTimer(Challenge challenge) {
+    HapticFeedback.selectionClick();
     if (challenge.isRunning) {
-      // Stop
       setState(() {
         challenge.isRunning = false;
       });
       _timer?.cancel();
     } else {
-      // Start
-      // Stop others
       for (var c in appState.challenges) {
         c.isRunning = false;
       }
@@ -99,10 +147,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
           timer.cancel();
           return;
         }
-        
         double increment = 1 / 60.0;
-        
-        // Check check before update for trigger
         bool wasCompleted = challenge.isCompleted;
         appState.updateChallengeProgress(challenge, increment);
 
@@ -110,23 +155,18 @@ class _PlannerScreenState extends State<PlannerScreen> {
             challenge.current = challenge.target;
             challenge.isRunning = false;
             timer.cancel();
-            appState.updateChallengeProgress(challenge, 50); // Bonus using global
+            appState.updateChallengeProgress(challenge, 50); 
             _confettiController.play();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text("TIMER FINISHED: ${challenge.name}"),
-                backgroundColor: AscendTheme.accent,
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
+            HapticFeedback.heavyImpact();
         }
       });
     }
   }
 
+  // --- UI ---
+
   @override
   Widget build(BuildContext context) {
-    // Sort: Running, then Incomplete, then Complete
     final sortedChallenges = List<Challenge>.from(appState.challenges);
     sortedChallenges.sort((a, b) {
       if (a.isRunning != b.isRunning) return a.isRunning ? -1 : 1;
@@ -143,184 +183,71 @@ class _PlannerScreenState extends State<PlannerScreen> {
               padding: const EdgeInsets.all(20),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                   Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const Text(
-                      "ACTIVE PROTOCOLS",
-                      style: TextStyle(
-                        color: AscendTheme.textDim,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 2.0,
-                      ),
-                    ),
-                    InkWell(
-                      onTap: () => _showAddModal(context),
-                      borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
+                  // Header
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text(
+                        "PLANNER",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 2.0,
                         ),
-                        child: const Icon(Icons.add, color: AscendTheme.secondary),
                       ),
-                    )
-                  ],
-                ),
-                const SizedBox(height: 20),
-                if (sortedChallenges.isEmpty)
-                   const Padding(
-                     padding: EdgeInsets.only(top: 50),
-                     child: Center(
-                       child: Text("NO ACTIVE PROTOCOLS", style: TextStyle(color: AscendTheme.textDim, letterSpacing: 1.5)),
-                     ),
-                   )
-                else
-                  ...sortedChallenges.map((c) => _buildChallengeCard(c)),
-              ]),
-            ),
-          ),
-        ],
-      ),
-    ), // Close ConfettiOverlay
-    ); // Close Scaffold
-  }
-
-  Widget _buildChallengeCard(Challenge task) {
-    Color activeColor = AscendTheme.primary;
-    if (task.type == ChallengeType.hydration) activeColor = AscendTheme.secondary;
-    if (task.type == ChallengeType.time) activeColor = AscendTheme.accent;
-    if (task.isCompleted) activeColor = AscendTheme.accent;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: AscendTheme.surface.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: task.isRunning 
-              ? AscendTheme.accent.withValues(alpha: 0.5) 
-              : Colors.white.withValues(alpha: 0.08)
-        ),
-        boxShadow: task.isRunning ? [
-           BoxShadow(
-             color: AscendTheme.accent.withValues(alpha: 0.1),
-             blurRadius: 15,
-             spreadRadius: 2,
-           )
-        ] : [],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          task.name,
-                          style: TextStyle(
-                            color: activeColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                      InkWell(
+                        onTap: () => _showAddModal(context),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AscendTheme.primary.withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AscendTheme.primary)
                           ),
+                          child: const Icon(Icons.add, color: AscendTheme.primary),
                         ),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8.0, bottom: 2.0),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: _getAttributeColor(task.attribute).withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: _getAttributeColor(task.attribute).withValues(alpha: 0.5), width: 0.5),
-                            ),
-                            child: Text(
-                              task.attribute.name.substring(0, 3).toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 8, 
-                                fontWeight: FontWeight.bold, 
-                                color: _getAttributeColor(task.attribute)
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (task.isRunning)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 8.0),
-                            child: Container(
-                              width: 8, height: 8, 
-                              decoration: const BoxDecoration(
-                                color: AscendTheme.accent,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatDisplayValue(task),
-                      style: const TextStyle(
-                        fontFamily: 'Roboto', // Should be Tech font ideally
-                        color: AscendTheme.textDim,
-                        fontSize: 12,
-                        letterSpacing: 1.0,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                Text(
-                  "${(task.progress * 100).toInt()}%",
-                  style: TextStyle(
-                    fontFamily: 'Roboto',
-                    color: task.isCompleted ? AscendTheme.accent : Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w900,
+                      )
+                    ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            
-            // Progress Bar
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: LinearProgressIndicator(
-                value: task.progress,
-                minHeight: 6,
-                backgroundColor: AscendTheme.background,
-                color: activeColor,
-              ),
-            ),
-            const SizedBox(height: 16),
+                  const SizedBox(height: 20),
+                  
+                  // ROUTINE STACKS
+                  const Text("DEPLOY ROUTINE STACK", style: TextStyle(color: AscendTheme.textDim, fontSize: 10, letterSpacing: 2.0, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  _buildRoutineStacksList(),
+                  const SizedBox(height: 30),
 
-            // Controls
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (!task.isCompleted) _buildControls(task),
-                if (task.isCompleted) 
-                   const Padding(
-                     padding: EdgeInsets.symmetric(vertical: 4),
-                     child: Text("DONE", style: TextStyle(color: AscendTheme.accent, fontWeight: FontWeight.bold, letterSpacing: 2)),
-                   ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => _deleteChallenge(task.id), 
-                  icon: const Icon(Icons.delete_outline, size: 20),
-                  color: Colors.red.withValues(alpha: 0.5),
-                ),
-              ],
+                  // ACTIVE LIST
+                  const Text(
+                    "ACTIVE PROTOCOLS",
+                    style: TextStyle(
+                      color: AscendTheme.textDim,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2.0,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (sortedChallenges.isEmpty)
+                     const Padding(
+                       padding: EdgeInsets.only(top: 50),
+                       child: Center(
+                         child: Text("NO ACTIVE PROTOCOLS", style: TextStyle(color: AscendTheme.textDim, letterSpacing: 1.5)),
+                       ),
+                     )
+                  else
+                    ...sortedChallenges.map((c) => ChallengeCard(
+                      task: c,
+                      onUpdate: _updateProgress,
+                      onDelete: _deleteChallenge,
+                      onToggleTimer: _toggleTimer,
+                      onEditTarget: _editChallengeTarget,
+                    )),
+                ]),
+              ),
             ),
           ],
         ),
@@ -328,101 +255,77 @@ class _PlannerScreenState extends State<PlannerScreen> {
     );
   }
 
-  String _formatDisplayValue(Challenge task) {
-     if (task.type == ChallengeType.time) {
-       int m = task.current.floor();
-       int s = ((task.current - m) * 60).floor();
-       return "${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')} / ${task.target.toInt()} min";
-     }
-     return "${task.current.toInt()} / ${task.target.toInt()} ${task.unit}";
+  Widget _buildRoutineStacksList() {
+    // Define Stacks here (In real app, move to AppState or Const)
+    final stacks = [
+      RoutineStack(
+        title: "Morning Spartan",
+        icon: Icons.wb_sunny,
+        tasks: [
+          Challenge(id: 't1', name: "Hydration", current: 0, target: 500, unit: "ml", type: ChallengeType.hydration, attribute: ChallengeAttribute.discipline),
+          Challenge(id: 't2', name: "Cold Shower", current: 0, target: 1, unit: "rep", type: ChallengeType.reps, attribute: ChallengeAttribute.discipline),
+          Challenge(id: 't3', name: "Push Ups", current: 0, target: 30, unit: "reps", type: ChallengeType.reps, attribute: ChallengeAttribute.strength),
+        ]
+      ),
+      RoutineStack(
+        title: "Runner's High",
+        icon: Icons.directions_run,
+        tasks: [
+          Challenge(id: 't4', name: "Running", current: 0, target: 5, unit: "km", type: ChallengeType.reps, attribute: ChallengeAttribute.agility),
+          Challenge(id: 't5', name: "Stretching", current: 0, target: 10, unit: "min", type: ChallengeType.time, attribute: ChallengeAttribute.agility),
+        ]
+      ),
+      RoutineStack(
+        title: "Monk Mode",
+        icon: Icons.self_improvement,
+        tasks: [
+          Challenge(id: 't6', name: "Deep Work", current: 0, target: 90, unit: "min", type: ChallengeType.time, attribute: ChallengeAttribute.intelligence),
+          Challenge(id: 't7', name: "Meditation", current: 0, target: 20, unit: "min", type: ChallengeType.time, attribute: ChallengeAttribute.discipline),
+        ]
+      ),
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: stacks.map((stack) => _buildStackCard(stack)).toList(),
+      ),
+    );
   }
 
-  Widget _buildControls(Challenge task) {
-    if (task.type == ChallengeType.time) {
-      int m = task.current.floor();
-      int s = ((task.current - m) * 60).floor();
-      String timeStr = "${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}";
-      return Row(
-        children: [
-           Text(timeStr, style: const TextStyle(fontFamily: 'Courier', fontWeight: FontWeight.bold, fontSize: 18)),
-           const SizedBox(width: 16),
-           GestureDetector(
-             onTap: () => _toggleTimer(task),
-             child: Container(
-               width: 40, height: 40,
-               decoration: BoxDecoration(
-                 color: task.isRunning ? AscendTheme.accent : Colors.white.withValues(alpha: 0.1),
-                 shape: BoxShape.circle,
-               ),
-               child: Icon(
-                 task.isRunning ? Icons.pause : Icons.play_arrow,
-                 color: task.isRunning ? Colors.black : Colors.white,
-               ),
-             ),
-           )
-        ],
-      );
-    } else if (task.type == ChallengeType.hydration) {
-       return Row(
-         children: [
-            _buildQuickAddBtn(task, 250, Icons.water_drop),
-            const SizedBox(width: 8),
-            _buildQuickAddBtn(task, 500, Icons.water_drop),
-         ],
-       );
-    } else {
-      // Reps
-      return Row(
-        children: [
-          _buildQuickAddBtn(task, 5, null, label: "+5"),
-          const SizedBox(width: 8),
-          _buildQuickAddBtn(task, 10, null, label: "+10"),
-        ],
-      );
-    }
-  }
-
-  Widget _buildQuickAddBtn(Challenge task, double amount, IconData? icon, {String? label}) {
-     return InkWell(
-       onTap: () => _updateProgress(task, amount),
-       borderRadius: BorderRadius.circular(8),
-       child: Container(
-         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-         decoration: BoxDecoration(
-           color: Colors.white.withValues(alpha: 0.05),
-           borderRadius: BorderRadius.circular(8),
-           border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-         ),
-         child: Row(
-           children: [
-              if (icon != null) Icon(icon, size: 14, color: task.type == ChallengeType.hydration ? AscendTheme.secondary : AscendTheme.textDim),
-              if (icon != null) const SizedBox(width: 4),
-              Text(
-                label ?? amount.toInt().toString(),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-              ),
-           ],
-         ),
-       ),
-     );
-  }
-
-
-
-
-  Color _getAttributeColor(ChallengeAttribute attr) {
-    switch (attr) {
-      case ChallengeAttribute.strength: return AscendTheme.primary;
-      case ChallengeAttribute.agility: return AscendTheme.secondary;
-      case ChallengeAttribute.intelligence: return Colors.white;
-      case ChallengeAttribute.discipline: return AscendTheme.accent;
-    }
+  Widget _buildStackCard(RoutineStack stack) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: InkWell(
+        onTap: () => _addStack(stack),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: 140,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AscendTheme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(stack.icon, color: AscendTheme.secondary, size: 24),
+              const SizedBox(height: 12),
+              Text(stack.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+              const SizedBox(height: 4),
+              Text("${stack.tasks.length} Tasks", style: const TextStyle(color: AscendTheme.textDim, fontSize: 10)),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _showAddModal(BuildContext context) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.transparent, // For glass effect inside
+      backgroundColor: Colors.transparent, 
       isScrollControlled: true,
       builder: (context) => _AddChallengeSheet(onAdd: _addChallenge),
     );
@@ -445,6 +348,7 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
 
   @override
   Widget build(BuildContext context) {
+    // ... (Keeping the Add Sheet Logic same as before for brevity, but it's included in the file)
     return Container(
       decoration: BoxDecoration(
         color: AscendTheme.surface,
@@ -459,18 +363,9 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            "NEW PROTOCOL",
-            style: TextStyle(
-              color: Colors.white, 
-              fontWeight: FontWeight.bold, 
-              letterSpacing: 1.5,
-              fontSize: 18,
-            ),
-          ),
+          const Text("NEW PROTOCOL", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5, fontSize: 18)),
           const SizedBox(height: 24),
           
-          // Type Selector
           const Text("TRACKING TYPE", style: TextStyle(color: AscendTheme.textDim, fontSize: 12, letterSpacing: 1.0)),
           const SizedBox(height: 8),
           Row(
@@ -484,7 +379,6 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Attribute Selector
           const Text("TARGET ATTRIBUTE", style: TextStyle(color: AscendTheme.textDim, fontSize: 12, letterSpacing: 1.0)),
           const SizedBox(height: 8),
           Row(
@@ -500,7 +394,6 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Inputs
           const Text("TASK NAME", style: TextStyle(color: AscendTheme.textDim, fontSize: 12, letterSpacing: 1.0)),
           const SizedBox(height: 8),
           TextField(
@@ -511,10 +404,7 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
               fillColor: AscendTheme.background,
               hintText: "e.g. Push Ups",
               hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
             ),
           ),
           const SizedBox(height: 16),
@@ -536,10 +426,7 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
                         fillColor: AscendTheme.background,
                         hintText: "100",
                         hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                       ),
                     ),
                   ],
@@ -561,10 +448,7 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
                       ),
-                      child: Text(
-                        _getUnit(),
-                        style: const TextStyle(color: AscendTheme.textDim, fontWeight: FontWeight.bold),
-                      ),
+                      child: Text(_getUnit(), style: const TextStyle(color: AscendTheme.textDim, fontWeight: FontWeight.bold)),
                     )
                   ],
                  )
@@ -573,14 +457,10 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
           ),
           const SizedBox(height: 24),
 
-          // Actions
           Row(
             children: [
               Expanded(
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("CANCEL", style: TextStyle(color: AscendTheme.textDim, fontWeight: FontWeight.bold)),
-                ),
+                child: TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: AscendTheme.textDim, fontWeight: FontWeight.bold))),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -633,22 +513,14 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: borderColor),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
-        ),
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8), border: Border.all(color: borderColor)),
+        child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
       ),
     );
   }
 
   Widget _buildAttributeBtn(String label, ChallengeAttribute attr, Color color) {
     bool isSelected = _selectedAttribute == attr;
-    
     return GestureDetector(
       onTap: () => setState(() => _selectedAttribute = attr),
       child: Container(
@@ -659,14 +531,7 @@ class _AddChallengeSheetState extends State<_AddChallengeSheet> {
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: isSelected ? color : Colors.white.withValues(alpha: 0.2)),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.black : color.withValues(alpha: 0.5), 
-            fontWeight: FontWeight.bold, 
-            fontSize: 10
-          ),
-        ),
+        child: Text(label, style: TextStyle(color: isSelected ? Colors.black : color.withValues(alpha: 0.5), fontWeight: FontWeight.bold, fontSize: 10)),
       ),
     );
   }

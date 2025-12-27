@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:ascend/models/models.dart';
 import 'package:ascend/theme.dart';
-
 import 'package:ascend/state/app_state.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -56,6 +55,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 12),
                     _buildPriorityTask(),
+                    const SizedBox(height: 30),
+                    const Text(
+                       "DAILY PROGRESS TRACKER",
+                       style: TextStyle(
+                         color: AscendTheme.textDim, 
+                         fontSize: 12, 
+                         letterSpacing: 2.0, 
+                         fontWeight: FontWeight.bold
+                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildDailyTracker(),
                   ],
                 ),
               ),
@@ -67,7 +78,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHeader() {
-    // Uses AppState player
     double progress = appState.player.currentXp / appState.player.maxXp;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -91,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontSize: 24,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 2.0,
-                    color: Colors.white, // Required for mask
+                    color: Colors.white,
                   ),
                 ),
               ),
@@ -106,7 +116,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           
-          // XP Bar and Profile
           Row(
             children: [
               Column(
@@ -192,7 +201,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           Column(
             children: [
-              // Avatar Holo
               Container(
                 width: 128, height: 128,
                 decoration: BoxDecoration(
@@ -274,7 +282,6 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     
-    // Determine color
     Color activeColor = AscendTheme.primary;
     if (task.type == ChallengeType.hydration) activeColor = AscendTheme.secondary;
     if (task.type == ChallengeType.time) activeColor = AscendTheme.accent;
@@ -316,5 +323,64 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  // New Daily Tracker Section (Arcade Bar Style)
+  Widget _buildDailyTracker() {
+    if (appState.challenges.isEmpty) {
+      return const Text("No active data feeds.", style: TextStyle(color: AscendTheme.textDim));
+    }
+
+    return Column(
+      children: appState.challenges.map((task) {
+        Color color = _getAttributeColor(task.attribute);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    task.name.toUpperCase(), 
+                    style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.0)
+                  ),
+                  Text(
+                    "${task.current.toInt()}/${task.target.toInt()} ${task.unit.toUpperCase()}", 
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              // Arcade Bar: Thicker, defined border, sharp corners
+              Container(
+                height: 12,
+                decoration: BoxDecoration(
+                  border: Border.all(color: color.withValues(alpha: 0.5), width: 1),
+                  color: Colors.black,
+                ),
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: task.progress.clamp(0.0, 1.0),
+                  child: Container(
+                    color: color,
+                  ),
+                ),
+              )
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Color _getAttributeColor(ChallengeAttribute attr) {
+    switch (attr) {
+      case ChallengeAttribute.strength: return AscendTheme.primary;
+      case ChallengeAttribute.agility: return AscendTheme.secondary;
+      case ChallengeAttribute.intelligence: return Colors.white;
+      case ChallengeAttribute.discipline: return AscendTheme.accent;
+    }
   }
 }

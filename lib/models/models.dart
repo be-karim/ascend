@@ -1,4 +1,6 @@
 
+import 'package:flutter/material.dart';
+
 class StatAttribute {
   int level;
   int currentXp;
@@ -134,6 +136,18 @@ enum ChallengeType { reps, time, hydration }
 
 enum ChallengeAttribute { strength, agility, intelligence, discipline }
 
+class RoutineStack {
+  final String title;
+  final IconData icon;
+  final List<Challenge> tasks;
+
+  RoutineStack({
+    required this.title,
+    required this.icon,
+    required this.tasks,
+  });
+}
+
 class Challenge {
   final String id;
   final String name;
@@ -180,3 +194,4 @@ class Challenge {
     isRunning: json['isRunning'] ?? false,
   );
 }
+
