@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ascend/models/stats.dart';
 import 'package:ascend/models/enums.dart';
+import 'package:ascend/models/history.dart'; // Import für HistoryEntry
 import 'package:ascend/providers/game_state_provider.dart';
 import 'package:ascend/theme.dart';
 
@@ -21,6 +22,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
   Widget build(BuildContext context) {
     final gameState = ref.watch(gameProvider);
     final player = gameState.stats;
+    final history = gameState.history; // Echte Historie aus der Datenbank
 
     return Scaffold(
       body: SingleChildScrollView(
@@ -60,12 +62,12 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             const SizedBox(height: 30),
             
             // --- SUMMARY GRID (STREAK & TOTAL) ---
-            _buildSummaryGrid(player),
+            _buildSummaryGrid(player, history),
 
             const SizedBox(height: 30),
             
             // --- ACTIVITY MATRIX (HEATMAP) ---
-            _buildActivityMatrix(),
+            _buildActivityMatrix(history),
 
             const SizedBox(height: 30),
             
@@ -91,9 +93,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
 
   // --- WIDGETS ---
 
-  Widget _buildSummaryGrid(PlayerStats player) {
-    // Hinweis: "Tasks Done" ist hier noch statisch, bis wir eine Historie in der DB haben.
-    // "Streak" kommt bereits live aus dem PlayerStats Model.
+  Widget _buildSummaryGrid(PlayerStats player, List<HistoryEntry> history) {
+    // Berechne Gesamtanzahl abgeschlossener Missionen aus der Historie
+    int totalCompleted = history.fold(0, (sum, entry) => sum + entry.completedCount);
+
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
@@ -103,8 +106,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       physics: const NeverScrollableScrollPhysics(),
       children: [
         _buildSummaryCard(Icons.local_fire_department, "${player.streak}", "Day Streak", AscendTheme.primary),
-        // Platzhalter-Berechnung für MVP (Später: sum(history.completed))
-        _buildSummaryCard(Icons.check_circle_outline, "${(player.currentXp / 10).floor()}", "Missions Done", AscendTheme.accent),
+        _buildSummaryCard(Icons.check_circle_outline, "$totalCompleted", "Missions Done", AscendTheme.accent),
       ],
     );
   }
@@ -209,7 +211,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     );
   }
 
-  Widget _buildActivityMatrix() {
+  Widget _buildActivityMatrix(List<HistoryEntry> history) {
     return Column(
       children: [
         Row(
@@ -244,30 +246,33 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           ),
           itemCount: _historyDays,
           itemBuilder: (context, index) {
-            // Logik: Wir simulieren hier Daten basierend auf dem Datum.
-            // Später: `historyRepository.getIntensityForDate(date)`
             
             final today = DateTime.now();
             final date = today.subtract(Duration(days: (_historyDays - 1) - index));
+            
+            // --- ECHTE DATEN ---
+            // Finde Eintrag für dieses Datum
+            final entry = history.firstWhere(
+              (h) => h.date.year == date.year && h.date.month == date.month && h.date.day == date.day,
+              orElse: () => HistoryEntry(date: date, completedCount: 0)
+            );
+            
             final dayFormatted = date.day.toString();
+            final count = entry.completedCount;
             
-            // Simulation der Intensität (0-3)
-            // Wenn es heute ist, nehmen wir Dummy-Daten oder 0
-            final isToday = date.day == today.day && date.month == today.month;
-            final intensity = isToday ? 2 : (date.day % 4); 
-            
+            // Farben basierend auf Aktivität
             Color itemColor = AscendTheme.surface;
             Color textColor = AscendTheme.textDim;
             Color borderColor = Colors.transparent;
             
-            if (intensity == 1) {
+            if (count > 0 && count <= 2) {
               itemColor = AscendTheme.secondary.withValues(alpha: 0.1);
               textColor = AscendTheme.secondary;
-            } else if (intensity == 2) {
+            } else if (count > 2 && count <= 5) {
               itemColor = AscendTheme.secondary.withValues(alpha: 0.3);
               textColor = Colors.white;
               borderColor = AscendTheme.secondary.withValues(alpha: 0.5);
-            } else if (intensity == 3) {
+            } else if (count > 5) {
               itemColor = AscendTheme.secondary;
               textColor = Colors.black;
               borderColor = AscendTheme.secondary;

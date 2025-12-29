@@ -86,4 +86,8 @@ class XPService {
     // Ein Tier ist wie 100 virtuelle Level wert
     return (totalLevels + (totalTiers * 100)) ~/ 4;
   }
+
+  int calculateMaxXpForGlobalLevel(int level) {
+    return (1000 * pow(level, 1.2)).floor(); // Flachere Kurve für den Anfang
+  }
 }

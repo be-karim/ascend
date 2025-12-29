@@ -4,21 +4,24 @@ import 'package:ascend/models/template.dart';
 import 'package:ascend/models/routine.dart';
 import 'package:ascend/models/stats.dart';
 import 'package:ascend/models/enums.dart';
+import 'package:ascend/models/history.dart'; // Import new model
 import 'package:ascend/repositories/challenges_repository.dart';
-import 'package:flutter/material.dart'; // for Icons
 
 class HiveChallengesRepository implements ChallengesRepository {
   static const String boxLibrary = 'libraryBox';
   static const String boxRoutines = 'routinesBox';
   static const String boxChallenges = 'activeChallengesBox';
   static const String boxStats = 'statsBox';
+  static const String boxHistory = 'historyBox';
+  static const String boxSettings = 'settingsBox'; // For tracking "Last Opened"
 
   late Box<ChallengeTemplate> _libraryBox;
   late Box<RoutineStack> _routinesBox;
   late Box<Challenge> _activeBox;
   late Box<PlayerStats> _statsBox;
+  late Box<HistoryEntry> _historyBox;
+  late Box _settingsBox;
 
-  // Initialize Hive and open boxes
   Future<void> init() async {
     await Hive.initFlutter();
     
@@ -31,11 +34,14 @@ class HiveChallengesRepository implements ChallengesRepository {
     Hive.registerAdapter(ChallengeTemplateAdapter());
     Hive.registerAdapter(ChallengeAdapter());
     Hive.registerAdapter(RoutineStackAdapter());
+    Hive.registerAdapter(HistoryEntryAdapter()); // New Adapter
 
     _libraryBox = await Hive.openBox<ChallengeTemplate>(boxLibrary);
     _routinesBox = await Hive.openBox<RoutineStack>(boxRoutines);
     _activeBox = await Hive.openBox<Challenge>(boxChallenges);
     _statsBox = await Hive.openBox<PlayerStats>(boxStats);
+    _historyBox = await Hive.openBox<HistoryEntry>(boxHistory);
+    _settingsBox = await Hive.openBox(boxSettings);
 
     await _seedDefaultsIfNeeded();
   }
@@ -62,18 +68,13 @@ class HiveChallengesRepository implements ChallengesRepository {
     }
   }
 
-  // --- INTERFACE IMPLEMENTATION ---
+  // --- STANDARD FETCHERS ---
 
   @override
-  Future<List<ChallengeTemplate>> fetchTemplates() async {
-    return _libraryBox.values.toList();
-  }
+  Future<List<ChallengeTemplate>> fetchTemplates() async => _libraryBox.values.toList();
 
   @override
   Future<void> saveTemplate(ChallengeTemplate template) async {
-    // If ID exists, it updates; if not, it adds (assuming key is ID, but here we use auto-keys or just values)
-    // To allow updates by ID easily, we should find the key.
-    // For MVP, simplistic add/update:
     final index = _libraryBox.values.toList().indexWhere((t) => t.id == template.id);
     if (index != -1) {
       await _libraryBox.putAt(index, template);
@@ -82,34 +83,31 @@ class HiveChallengesRepository implements ChallengesRepository {
     }
   }
 
-  // Helper methods for the Provider to call
-  Future<List<RoutineStack>> fetchRoutines() async {
-    return _routinesBox.values.toList();
+  Future<List<RoutineStack>> fetchRoutines() async => _routinesBox.values.toList();
+  Future<void> saveRoutine(RoutineStack stack) async => await _routinesBox.add(stack);
+
+  Future<List<Challenge>> fetchActiveChallenges() async => _activeBox.values.toList();
+  Future<void> saveActiveChallenge(Challenge challenge) async => await _activeBox.put(challenge.id, challenge);
+  Future<void> deleteActiveChallenge(String id) async => await _activeBox.delete(id);
+
+  Future<PlayerStats> fetchPlayerStats() async => _statsBox.get('player')!;
+  Future<void> savePlayerStats(PlayerStats stats) async => await _statsBox.put('player', stats);
+
+  // --- HISTORY & SETTINGS METHODS ---
+
+  Future<List<HistoryEntry>> fetchHistory() async => _historyBox.values.toList();
+  
+  Future<void> saveHistoryEntry(HistoryEntry entry) async {
+    await _historyBox.add(entry);
   }
 
-  Future<void> saveRoutine(RoutineStack stack) async {
-    await _routinesBox.add(stack);
+  DateTime? getLastOpenedDate() {
+    final str = _settingsBox.get('lastOpenedDate');
+    if (str == null) return null;
+    return DateTime.parse(str);
   }
 
-  Future<List<Challenge>> fetchActiveChallenges() async {
-    // Filter for "Today" could happen here or in logic. 
-    // For now, return all in box (assuming we clear old ones or filter by date in logic)
-    return _activeBox.values.toList();
-  }
-
-  Future<void> saveActiveChallenge(Challenge challenge) async {
-    await _activeBox.put(challenge.id, challenge); // Use ID as key for easy update
-  }
-
-  Future<void> deleteActiveChallenge(String id) async {
-    await _activeBox.delete(id);
-  }
-
-  Future<PlayerStats> fetchPlayerStats() async {
-    return _statsBox.get('player')!;
-  }
-
-  Future<void> savePlayerStats(PlayerStats stats) async {
-    await _statsBox.put('player', stats);
+  Future<void> setLastOpenedDate(DateTime date) async {
+    await _settingsBox.put('lastOpenedDate', date.toIso8601String());
   }
 }

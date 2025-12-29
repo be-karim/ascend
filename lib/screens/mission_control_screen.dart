@@ -24,10 +24,11 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("MISSION CONTROL", style: TextStyle(letterSpacing: 2.0, fontWeight: FontWeight.bold, fontSize: 16)),
+        title: const Text("MISSION PLANNING", style: TextStyle(letterSpacing: 2.0, fontWeight: FontWeight.bold, fontSize: 16)),
         centerTitle: true,
         backgroundColor: AscendTheme.background,
         elevation: 0,
+        automaticallyImplyLeading: false, // Kein Zurück-Pfeil
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -38,9 +39,10 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildSectionTitle("ROUTINE STACKS"),
+                _buildSectionTitle("ROUTINE PACKAGES"),
                 IconButton(
                   onPressed: () {
+                    // StackBuilder ist ein neuer Screen, daher Push ok
                     Navigator.push(context, MaterialPageRoute(builder: (context) => const StackBuilderScreen()));
                   },
                   icon: const Icon(Icons.add_circle, color: AscendTheme.secondary),
@@ -96,8 +98,15 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
       child: InkWell(
         onTap: () {
           ref.read(gameProvider.notifier).addRoutine(stack);
-          Navigator.pop(context); 
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Deploying ${stack.title}..."), backgroundColor: AscendTheme.secondary));
+          // KEIN Pop mehr, nur Feedback
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("ROUTINE DEPLOYED: ${stack.title}"),
+              backgroundColor: AscendTheme.secondary,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 1),
+            )
+          );
         },
         borderRadius: BorderRadius.circular(16),
         child: Container(
@@ -139,7 +148,15 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
       child: ListTile(
         onTap: () {
           ref.read(gameProvider.notifier).addChallenge(template);
-          Navigator.pop(context);
+          // KEIN Pop mehr
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("ADDED: ${template.title}"),
+              backgroundColor: AscendTheme.primary,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(milliseconds: 800),
+            )
+          );
         },
         leading: Container(
           padding: const EdgeInsets.all(8),
@@ -159,8 +176,7 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
     );
   }
 
-  // --- DIALOGS ---
-
+  // --- DIALOGS (Bleiben gleich wie vorher) ---
   void _showAddTemplateDialog() {
     final titleCtrl = TextEditingController();
     final targetCtrl = TextEditingController();
@@ -214,7 +230,7 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
                   final val = double.tryParse(targetCtrl.text);
                   if (titleCtrl.text.isNotEmpty && val != null) {
                     final newTemplate = ChallengeTemplate(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(), // Temp ID
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
                       title: titleCtrl.text,
                       description: "Custom",
                       defaultTarget: val,
@@ -236,7 +252,6 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
   }
 
   void _showEditTemplateDialog(ChallengeTemplate template) {
-    // Note: Assuming we just update target/unit for MVP
     final targetCtrl = TextEditingController(text: template.defaultTarget.toInt().toString());
     final unitCtrl = TextEditingController(text: template.unit);
 
@@ -268,7 +283,6 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
             onPressed: () {
               final val = double.tryParse(targetCtrl.text);
               if (val != null) {
-                // Since our Template class is immutable, we create a copy with new values
                 final updated = template.copyWith(defaultTarget: val, unit: unitCtrl.text);
                 ref.read(gameProvider.notifier).updateTemplate(updated);
               }
