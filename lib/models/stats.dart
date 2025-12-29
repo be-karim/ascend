@@ -1,26 +1,21 @@
-// lib/models/stats.dart
+import 'package:hive/hive.dart';
 
+part 'stats.g.dart';
+
+@HiveType(typeId: 3)
 class StatAttribute {
+  @HiveField(0)
   final int level;
+  @HiveField(1)
   final int currentXp;
+  @HiveField(2)
   final int maxXp;
-  final int tier; // 0=Iron, 1=Bronze, etc.
+  @HiveField(3)
+  final int tier;
 
-  const StatAttribute({
-    this.level = 1,
-    this.currentXp = 0,
-    this.maxXp = 100,
-    this.tier = 0,
-  });
+  const StatAttribute({this.level = 1, this.currentXp = 0, this.maxXp = 100, this.tier = 0});
 
-  // WICHTIG für Riverpod: State ist immutable (unveränderlich).
-  // Wir verändern Objekte nicht, wir kopieren sie mit neuen Werten.
-  StatAttribute copyWith({
-    int? level,
-    int? currentXp,
-    int? maxXp,
-    int? tier,
-  }) {
+  StatAttribute copyWith({int? level, int? currentXp, int? maxXp, int? tier}) {
     return StatAttribute(
       level: level ?? this.level,
       currentXp: currentXp ?? this.currentXp,
@@ -28,35 +23,19 @@ class StatAttribute {
       tier: tier ?? this.tier,
     );
   }
-
-  // Für Datenbank (JSON)
-  Map<String, dynamic> toJson() => {
-    'level': level,
-    'currentXp': currentXp,
-    'maxXp': maxXp,
-    'tier': tier,
-  };
-
-  factory StatAttribute.fromJson(Map<String, dynamic> json) {
-    return StatAttribute(
-      level: json['level'] ?? 1,
-      currentXp: json['currentXp'] ?? 0,
-      maxXp: json['maxXp'] ?? 100,
-      tier: json['tier'] ?? 0,
-    );
-  }
 }
 
+@HiveType(typeId: 4)
 class PlayerStats {
-  final StatAttribute strength;
-  final StatAttribute agility;
-  final StatAttribute intelligence;
-  final StatAttribute discipline;
-  
-  final int globalLevel;
-  final int currentXp;
-  final int maxXp;
-  final int streak;
+  @HiveField(0) final StatAttribute strength;
+  @HiveField(1) final StatAttribute agility;
+  @HiveField(2) final StatAttribute intelligence;
+  @HiveField(3) final StatAttribute discipline;
+  @HiveField(4) final int globalLevel;
+  @HiveField(5) final int currentXp;
+  @HiveField(6) final int streak; // Renamed from maxXp to streak for clarity? Or keeping maxXp separate? 
+  // Let's keep your original fields:
+  @HiveField(7) final int maxXp;
 
   const PlayerStats({
     required this.strength,
@@ -69,7 +48,6 @@ class PlayerStats {
     this.streak = 0,
   });
 
-  // Helper für State Updates
   PlayerStats copyWith({
     StatAttribute? strength,
     StatAttribute? agility,
@@ -89,31 +67,6 @@ class PlayerStats {
       currentXp: currentXp ?? this.currentXp,
       maxXp: maxXp ?? this.maxXp,
       streak: streak ?? this.streak,
-    );
-  }
-
-  // Serialisierung
-  Map<String, dynamic> toJson() => {
-    'strength': strength.toJson(),
-    'agility': agility.toJson(),
-    'intelligence': intelligence.toJson(),
-    'discipline': discipline.toJson(),
-    'globalLevel': globalLevel,
-    'currentXp': currentXp,
-    'maxXp': maxXp,
-    'streak': streak,
-  };
-
-  factory PlayerStats.fromJson(Map<String, dynamic> json) {
-    return PlayerStats(
-      strength: StatAttribute.fromJson(json['strength']),
-      agility: StatAttribute.fromJson(json['agility']),
-      intelligence: StatAttribute.fromJson(json['intelligence']),
-      discipline: StatAttribute.fromJson(json['discipline']),
-      globalLevel: json['globalLevel'] ?? 1,
-      currentXp: json['currentXp'] ?? 0,
-      maxXp: json['maxXp'] ?? 1000,
-      streak: json['streak'] ?? 0,
     );
   }
 }

@@ -1,16 +1,18 @@
-// lib/models/template.dart
-
+import 'package:hive/hive.dart';
 import 'package:ascend/models/enums.dart';
 
+part 'template.g.dart';
+
+@HiveType(typeId: 5)
 class ChallengeTemplate {
-  final String id;
-  final String title;
-  final String description;
-  final double defaultTarget;
-  final String unit; // z.B. "reps", "min", "km"
-  final ChallengeType type;
-  final ChallengeAttribute attribute;
-  final Difficulty difficulty;
+  @HiveField(0) final String id;
+  @HiveField(1) final String title;
+  @HiveField(2) final String description;
+  @HiveField(3) final double defaultTarget;
+  @HiveField(4) final String unit;
+  @HiveField(5) final ChallengeType type;
+  @HiveField(6) final ChallengeAttribute attribute;
+  @HiveField(7) final Difficulty difficulty;
 
   ChallengeTemplate({
     required this.id,
@@ -22,9 +24,9 @@ class ChallengeTemplate {
     required this.attribute,
     this.difficulty = Difficulty.iron,
   });
-
-  // Hilfreich, wenn wir Templates bearbeiten
+  
   ChallengeTemplate copyWith({
+    String? id,
     String? title,
     String? description,
     double? defaultTarget,
@@ -34,7 +36,7 @@ class ChallengeTemplate {
     Difficulty? difficulty,
   }) {
     return ChallengeTemplate(
-      id: this.id, // ID bleibt immer gleich
+      id: id ?? this.id,
       title: title ?? this.title,
       description: description ?? this.description,
       defaultTarget: defaultTarget ?? this.defaultTarget,
