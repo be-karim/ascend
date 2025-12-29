@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:ascend/models/models.dart';
+import 'package:ascend/models/challenge.dart'; // Ensure correct import path
+import 'package:ascend/models/enums.dart'; // Ensure correct import path
 import 'package:ascend/theme.dart';
 
 class ChallengeCard extends StatelessWidget {
   final Challenge task;
-  final Function(Challenge, double) onUpdate;
-  final Function(String) onDelete;
-  final Function(Challenge) onToggleTimer;
-  final Function(Challenge, double) onEditTarget; // New callback
+  // FIX: Explicitly add 'void' to the callback definitions
+  final void Function(Challenge, double) onUpdate;
+  final void Function(String) onDelete;
+  final void Function(Challenge) onToggleTimer;
+  final void Function(Challenge, double) onEditTarget;
 
   const ChallengeCard({
     super.key,
@@ -33,7 +35,6 @@ class ChallengeCard extends StatelessWidget {
       background: _buildSwipeBackground(Alignment.centerLeft, Icons.add_circle, AscendTheme.accent),
       secondaryBackground: _buildSwipeBackground(Alignment.centerRight, Icons.delete_forever, Colors.redAccent),
       child: GestureDetector(
-        // THE NEW EDIT FRICTION: Long Press to edit details
         onLongPress: () => _showEditDialog(context),
         child: Container(
           margin: const EdgeInsets.only(bottom: 16),
@@ -88,7 +89,7 @@ class ChallengeCard extends StatelessWidget {
       HapticFeedback.mediumImpact();
       double amount = _getQuickAddAmount();
       onUpdate(task, amount);
-      return false; // Don't dismiss
+      return false; 
     } else {
       bool confirm = await showDialog(
         context: context,
@@ -97,7 +98,7 @@ class ChallengeCard extends StatelessWidget {
           title: const Text("Abort Protocol?", style: TextStyle(color: Colors.white)),
           content: Text("Delete ${task.name}?", style: const TextStyle(color: AscendTheme.textDim)),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("CANCEL")),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("CANCEL", style: TextStyle(color: AscendTheme.textDim))),
             TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("ABORT", style: TextStyle(color: Colors.red))),
           ],
         )
@@ -135,7 +136,7 @@ class ChallengeCard extends StatelessWidget {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL")),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL", style: TextStyle(color: AscendTheme.textDim))),
           TextButton(
             onPressed: () {
               final val = double.tryParse(controller.text);

@@ -1,22 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ascend/screens/home_screen.dart';
-import 'package:ascend/screens/planner_screen.dart';
+import 'package:ascend/screens/daily_log_screen.dart';
 import 'package:ascend/screens/stats_screen.dart';
 import 'package:ascend/theme.dart';
 
-class MainScaffold extends StatefulWidget {
+class MainScaffold extends ConsumerStatefulWidget {
   const MainScaffold({super.key});
 
   @override
-  State<MainScaffold> createState() => _MainScaffoldState();
+  ConsumerState<MainScaffold> createState() => _MainScaffoldState();
 }
 
-class _MainScaffoldState extends State<MainScaffold> {
+class _MainScaffoldState extends ConsumerState<MainScaffold> {
   int _currentIndex = 0;
 
   final List<Widget> _screens = [
     const HomeScreen(),
-    const PlannerScreen(),
+    const DailyLogScreen(),
     const StatsScreen(),
   ];
 
@@ -47,14 +48,14 @@ class _MainScaffoldState extends State<MainScaffold> {
           elevation: 0,
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today_outlined),
-              activeIcon: Icon(Icons.calendar_today),
-              label: 'TODAY',
+              icon: Icon(Icons.dashboard_outlined),
+              activeIcon: Icon(Icons.dashboard),
+              label: 'HOME',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.emoji_events_outlined),
-              activeIcon: Icon(Icons.emoji_events),
-              label: 'TASKS',
+              icon: Icon(Icons.assignment_outlined),
+              activeIcon: Icon(Icons.assignment),
+              label: 'DAILY LOG',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.bar_chart_outlined),

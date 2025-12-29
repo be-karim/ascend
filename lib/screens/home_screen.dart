@@ -1,48 +1,34 @@
 import 'package:flutter/material.dart';
-import 'package:ascend/models/models.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:ascend/models/enums.dart';
+import 'package:ascend/models/challenge.dart'; // For the active list
+import 'package:ascend/providers/game_state_provider.dart';
 import 'package:ascend/theme.dart';
-import 'package:ascend/state/app_state.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final gameState = ref.watch(gameProvider);
+    final player = gameState.stats;
+    final activeChallenges = gameState.activeChallenges;
 
-class _HomeScreenState extends State<HomeScreen> {
-  final AppState appState = AppState();
+    // Calculate XP Progress
+    double progress = player.currentXp / player.maxXp;
 
-  @override
-  void initState() {
-    super.initState();
-    appState.addListener(_onStateChange);
-  }
-
-  @override
-  void dispose() {
-    appState.removeListener(_onStateChange);
-    super.dispose();
-  }
-
-  void _onStateChange() {
-    setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            _buildHeader(),
+            _buildHeader(player.globalLevel, progress),
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildHeroSection(),
+                    _buildHeroSection(player.globalLevel, player.streak, player.currentXp),
                     const SizedBox(height: 24),
                     const Text(
                        "PRIORITY TARGET",
@@ -54,7 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
                        ),
                     ),
                     const SizedBox(height: 12),
-                    _buildPriorityTask(),
+                    _buildPriorityTask(activeChallenges),
                     const SizedBox(height: 30),
                     const Text(
                        "DAILY PROGRESS TRACKER",
@@ -66,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
                        ),
                     ),
                     const SizedBox(height: 12),
-                    _buildDailyTracker(),
+                    _buildDailyTracker(activeChallenges),
                   ],
                 ),
               ),
@@ -77,8 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHeader() {
-    double progress = appState.player.currentXp / appState.player.maxXp;
+  Widget _buildHeader(int level, double progress) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
@@ -107,15 +92,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const Text(
                 "SYSTEM ONLINE",
-                style: TextStyle(
-                  color: AscendTheme.textDim,
-                  fontSize: 10,
-                  letterSpacing: 2.0,
-                ),
+                style: TextStyle(color: AscendTheme.textDim, fontSize: 10, letterSpacing: 2.0),
               )
             ],
           ),
-          
           Row(
             children: [
               Column(
@@ -125,7 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     text: TextSpan(
                       children: [
                         const TextSpan(text: "LVL ", style: TextStyle(color: AscendTheme.secondary, fontSize: 10, letterSpacing: 1.0, fontWeight: FontWeight.bold)),
-                        TextSpan(text: "${appState.player.globalLevel}", style: const TextStyle(color: AscendTheme.secondary, fontSize: 10, fontWeight: FontWeight.bold)),
+                        TextSpan(text: "$level", style: const TextStyle(color: AscendTheme.secondary, fontSize: 10, fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
@@ -167,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildHeroSection() {
+  Widget _buildHeroSection(int level, int streak, int xp) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -216,7 +196,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 alignment: Alignment.center,
                 child: Text(
-                  "${appState.player.globalLevel}",
+                  "$level",
                   style: TextStyle(
                     fontSize: 48,
                     fontWeight: FontWeight.w900,
@@ -235,9 +215,9 @@ class _HomeScreenState extends State<HomeScreen> {
               
               Row(
                 children: [
-                  Expanded(child: _buildInfoCard("STREAK", "${appState.player.streak}", AscendTheme.accent)),
+                  Expanded(child: _buildInfoCard("STREAK", "$streak", AscendTheme.accent)),
                   const SizedBox(width: 8),
-                  Expanded(child: _buildInfoCard("XP TODAY", "${appState.player.currentXp}", AscendTheme.primary)),
+                  Expanded(child: _buildInfoCard("XP TODAY", "$xp", AscendTheme.primary)),
                   const SizedBox(width: 8),
                   Expanded(child: _buildInfoCard("FOCUS", "STR", AscendTheme.secondary)),
                 ],
@@ -267,8 +247,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildPriorityTask() {
-    final task = appState.priorityTarget;
+  Widget _buildPriorityTask(List<Challenge> challenges) {
+    final task = challenges.where((c) => !c.isCompleted).firstOrNull;
 
     if (task == null) {
       return Container(
@@ -325,14 +305,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // New Daily Tracker Section (Arcade Bar Style)
-  Widget _buildDailyTracker() {
-    if (appState.challenges.isEmpty) {
-      return const Text("No active data feeds.", style: TextStyle(color: AscendTheme.textDim));
+  Widget _buildDailyTracker(List<Challenge> challenges) {
+    if (challenges.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Text("No active data feeds.", style: TextStyle(color: AscendTheme.textDim)),
+      );
     }
 
     return Column(
-      children: appState.challenges.map((task) {
+      children: challenges.map((task) {
         Color color = _getAttributeColor(task.attribute);
         return Padding(
           padding: const EdgeInsets.only(bottom: 12.0),
@@ -353,7 +335,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               const SizedBox(height: 4),
-              // Arcade Bar: Thicker, defined border, sharp corners
               Container(
                 height: 12,
                 decoration: BoxDecoration(
@@ -363,9 +344,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 alignment: Alignment.centerLeft,
                 child: FractionallySizedBox(
                   widthFactor: task.progress.clamp(0.0, 1.0),
-                  child: Container(
-                    color: color,
-                  ),
+                  child: Container(color: color),
                 ),
               )
             ],

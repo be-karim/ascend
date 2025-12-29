@@ -1,5 +1,5 @@
+import 'package:ascend/models/stats.dart';
 import 'package:flutter/material.dart';
-import 'package:ascend/models/models.dart';
 import 'package:ascend/theme.dart';
 import 'dart:math';
 
