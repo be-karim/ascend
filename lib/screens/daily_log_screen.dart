@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,11 +21,26 @@ class DailyLogScreen extends ConsumerStatefulWidget {
 
 class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
   final ConfettiController _confettiController = ConfettiController();
-  final PageController _pageController = PageController(viewportFraction: 0.85); // Zeigt Nachbarn an
+  late PageController _pageController;
+  Timer? _timer;
   
   TabCategory _selectedTab = TabCategory.all;
   bool _isCardView = true; 
   final Set<String> _expandedIds = {}; // Für ListView Details
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(viewportFraction: 0.85);
+  }
+
+  @override
+  void dispose() {
+    _confettiController.dispose();
+    _pageController.dispose();
+    _timer?.cancel(); // WICHTIG: Timer aufräumen
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,11 +60,11 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
       }
     }).toList();
 
-    // 2. SORTIERUNG: Offene zuerst, dann nach Priorität/ID
-    // Wir wollen hier NICHT, dass fertige Aufgaben komplett verschwinden, aber sie sollten hinten stehen.
+    // 2. SORTIERUNG: Laufende -> Offene -> Fertige
     filtered.sort((a, b) {
+      if (a.isRunning != b.isRunning) return a.isRunning ? -1 : 1;
       if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
-      return 0; // Stabile Sortierung sonst
+      return 0;
     });
 
     final pendingCount = filtered.where((c) => !c.isCompleted).length;
@@ -212,7 +226,7 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
     );
   }
 
-  // --- CAROUSEL VIEW (The New Hero) ---
+  // --- CAROUSEL VIEW ---
 
   Widget _buildCarouselView(List<Challenge> challenges) {
     return PageView.builder(
@@ -221,7 +235,6 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
       physics: const BouncingScrollPhysics(),
       itemBuilder: (context, index) {
         final task = challenges[index];
-        // Wir nutzen das index-basierte Bauen für potenzielle Animationen beim Scrollen später
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: ActiveChallengeCard(
@@ -234,9 +247,9 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
     );
   }
 
-  // --- LIST VIEW (Compact Fallback) ---
+  // --- LIST VIEW ---
 
-Widget _buildListView(List<Challenge> challenges) {
+  Widget _buildListView(List<Challenge> challenges) {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
       itemCount: challenges.length,
@@ -247,11 +260,10 @@ Widget _buildListView(List<Challenge> challenges) {
         
         // Smarte Berechnung für den Quick-Button Amount
         double quickAmount = 1;
-        if (task.target >= 1000) quickAmount = 250; // Wasser etc.
-        else if (task.target >= 100) quickAmount = 25; // Pushups etc.
+        if (task.target >= 1000) quickAmount = 250; 
+        else if (task.target >= 100) quickAmount = 25; 
         else if (task.target >= 30) quickAmount = 5;
         
-        // Unit Text clean halten
         final unitLabel = task.unit.length > 4 ? "" : task.unit.toUpperCase();
 
         return GestureDetector(
@@ -275,7 +287,6 @@ Widget _buildListView(List<Challenge> challenges) {
                 // MAIN ROW
                 Row(
                   children: [
-                    // Status Icon
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
@@ -289,15 +300,12 @@ Widget _buildListView(List<Challenge> challenges) {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    
-                    // Name & Progress
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(task.name, style: TextStyle(fontWeight: FontWeight.bold, color: task.isCompleted ? AscendTheme.textDim : Colors.white, fontSize: 14)),
                           const SizedBox(height: 4),
-                          // Mini Bar im geschlossenen Zustand
                           if (!isExpanded && !task.isCompleted)
                             ClipRRect(
                               borderRadius: BorderRadius.circular(2),
@@ -311,10 +319,7 @@ Widget _buildListView(List<Challenge> challenges) {
                         ],
                       ),
                     ),
-                    
                     const SizedBox(width: 12),
-                    
-                    // Rechter Teil: Entweder Status Text oder Quick Action Button (wenn nicht expanded)
                     if (!isExpanded)
                       task.type == ChallengeType.time 
                         ? Icon(task.isRunning ? Icons.pause_circle : Icons.play_circle, color: task.isRunning ? Colors.white : Colors.white24)
@@ -325,11 +330,9 @@ Widget _buildListView(List<Challenge> challenges) {
                   ],
                 ),
                 
-                // EXPANDED DETAILS & ACTIONS
+                // EXPANDED DETAILS
                 if (isExpanded) ...[
                   const SizedBox(height: 16),
-                  
-                  // Große Progress Bar
                   Row(
                     children: [
                       Text("PROGRESS", style: TextStyle(fontSize: 9, color: AscendTheme.textDim, letterSpacing: 1.0)),
@@ -347,15 +350,11 @@ Widget _buildListView(List<Challenge> challenges) {
                       minHeight: 6,
                     ),
                   ),
-                  
                   const SizedBox(height: 16),
-                  
-                  // SMART ACTION ROW
                   if (!task.isCompleted)
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        // TIME TASK -> Timer Toggle
                         if (task.type == ChallengeType.time)
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
@@ -366,16 +365,12 @@ Widget _buildListView(List<Challenge> challenges) {
                             label: Text(task.isRunning ? "PAUSE" : "START TIMER"),
                             onPressed: () => _toggleTimer(task),
                           )
-                        
-                        // VALUE TASK -> Smart Add Buttons
                         else ...[
-                          // Kleiner Schritt (Feinjustierung)
                           TextButton(
                             onPressed: () => _logProgress(task, 1),
                             child: const Text("+1", style: TextStyle(color: Colors.white38)),
                           ),
                           const SizedBox(width: 8),
-                          // Großer Smart Schritt (Haupt-Button)
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: color.withValues(alpha: 0.15),
@@ -384,10 +379,7 @@ Widget _buildListView(List<Challenge> challenges) {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
                             ),
                             onPressed: () => _logProgress(task, quickAmount),
-                            child: Text(
-                              "+${quickAmount.toInt()} $unitLabel", 
-                              style: const TextStyle(fontWeight: FontWeight.bold)
-                            ),
+                            child: Text("+${quickAmount.toInt()} $unitLabel", style: const TextStyle(fontWeight: FontWeight.bold)),
                           ),
                         ]
                       ],
@@ -401,7 +393,6 @@ Widget _buildListView(List<Challenge> challenges) {
     );
   }
 
-  
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -422,7 +413,7 @@ Widget _buildListView(List<Challenge> challenges) {
 
     ref.read(gameProvider.notifier).updateProgress(task.id, amount);
     
-    // Gamified Feedback
+    // FeedbackCheck direkt (etwas optimistisch für UI Responsiveness)
     if (task.current + amount >= task.target) {
       _confettiController.play();
       HapticFeedback.heavyImpact();
@@ -431,9 +422,45 @@ Widget _buildListView(List<Challenge> challenges) {
     }
   }
 
+  // FIXED: Timer Logic
   void _toggleTimer(Challenge task) {
-    HapticFeedback.mediumImpact();
-    ref.read(gameProvider.notifier).toggleTimer(task.id, !task.isRunning);
+    HapticFeedback.selectionClick();
+    
+    // 1. Wenn er bereits läuft -> Stoppen
+    if (task.isRunning) {
+      ref.read(gameProvider.notifier).toggleTimer(task.id, false);
+      _timer?.cancel();
+    } 
+    // 2. Wenn er gestartet wird -> Ticker starten
+    else {
+      // Vorherigen Timer sicherheitshalber stoppen (Single Focus)
+      _timer?.cancel();
+      
+      // Im Provider Status setzen (damit UI updated)
+      ref.read(gameProvider.notifier).toggleTimer(task.id, true);
+      
+      // Lokalen Ticker starten, der den Fortschritt updated
+      _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+        // Frischen State holen, um zu prüfen ob er noch laufen soll
+        final currentTask = ref.read(gameProvider).activeChallenges
+            .firstWhere((c) => c.id == task.id, orElse: () => task);
+            
+        if (!currentTask.isRunning || currentTask.isCompleted) {
+          t.cancel();
+          // Falls completed durch Zeitablauf -> Timer im State stoppen
+          if (currentTask.isCompleted && currentTask.isRunning) {
+             ref.read(gameProvider.notifier).toggleTimer(task.id, false);
+             _confettiController.play();
+             HapticFeedback.heavyImpact();
+          }
+          return;
+        }
+        
+        // Fortschritt addieren (1 Sekunde = 1/60 Minute)
+        // Annahme: Unit ist 'min'. Wenn Unit 'hours' ist, anpassen.
+        ref.read(gameProvider.notifier).updateProgress(task.id, 1/60);
+      });
+    }
   }
 }
 
@@ -463,7 +490,7 @@ class ActiveChallengeCard extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            // 1. ANIMATED BACKGROUND FILL (Visual Progress)
+            // 1. ANIMATED BACKGROUND FILL
             Align(
               alignment: Alignment.bottomCenter,
               child: LayoutBuilder(
@@ -545,7 +572,7 @@ class ActiveChallengeCard extends StatelessWidget {
                     ],
                   ),
 
-                  // 3. SMART CONTROLS (Context Aware)
+                  // 3. SMART CONTROLS
                   SizedBox(
                     height: 80,
                     child: isDone 
@@ -583,7 +610,6 @@ class ActiveChallengeCard extends StatelessWidget {
   }
 
   Widget _buildSmartControls(BuildContext context, Color color) {
-    // A. TIME CONTROLS
     if (task.type == ChallengeType.time) {
       return Center(
         child: GestureDetector(
@@ -607,7 +633,6 @@ class ActiveChallengeCard extends StatelessWidget {
       );
     } 
     
-    // B. BOOLEAN (Simple Check)
     if (task.type == ChallengeType.boolean) {
       return Center(
         child: SizedBox(
@@ -626,13 +651,10 @@ class ActiveChallengeCard extends StatelessWidget {
       );
     }
 
-    // C. VALUE INPUTS (Context Sensitive)
-    bool isHighValue = task.target >= 100; // z.B. Wasser, Kalorien
+    bool isHighValue = task.target >= 100;
     
     if (isHighValue) {
-       // High Value -> Presets
-       double step = task.target / 10; // Dynamischer Step, z.B. 250 bei 2500
-       // Runden auf schöne Zahlen
+       double step = task.target / 10;
        if (step > 100) step = (step / 50).round() * 50.0;
        
        return Row(
@@ -644,7 +666,6 @@ class ActiveChallengeCard extends StatelessWidget {
          ],
        );
     } else {
-      // Low Value (Reps) -> Stepper Style
       return Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [

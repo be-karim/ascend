@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCEND Protocol Architect</title>
+    <style>
+        :root {
+            --bg: #05070A;
+            --surface: #0F1522;
+            --primary: #FF3D81;
+            --secondary: #00E5FF;
+            --text: #F5F7FF;
+            --text-dim: #64748B;
+        }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Courier New', Courier, monospace;
+            padding: 20px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1, h2 { text-transform: uppercase; letter-spacing: 2px; }
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        
+        .card {
+            background: var(--surface);
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+        }
+
+        .form-group { margin-bottom: 15px; }
+        label { display: block; color: var(--text-dim); font-size: 10px; font-weight: bold; margin-bottom: 5px; letter-spacing: 1px; }
+        input, select {
+            width: 100%;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        input:focus, select:focus { outline: none; border-color: var(--secondary); }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: var(--secondary);
+            color: black;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            transition: all 0.2s;
+        }
+        button:hover { opacity: 0.9; transform: translateY(-1px); }
+        button.add { background: var(--primary); color: white; }
+
+        .list-item {
+            background: rgba(255,255,255,0.05);
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+        .tag { padding: 2px 6px; border-radius: 4px; font-size: 9px; background: rgba(255,255,255,0.1); margin-right: 5px; }
+        
+        pre {
+            background: black;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--text-dim);
+            color: var(--secondary);
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Protocol Architect</h1>
+
+    <div class="container">
+        <div class="card">
+            <h2>New Entry</h2>
+            <div class="form-group">
+                <label>TITLE</label>
+                <input type="text" id="title" placeholder="e.g. Morning Run">
+            </div>
+            <div class="form-group">
+                <label>DESCRIPTION</label>
+                <input type="text" id="desc" placeholder="e.g. Zone 2 Cardio">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group">
+                    <label>TARGET</label>
+                    <input type="number" id="target" value="1">
+                </div>
+                <div class="form-group">
+                    <label>UNIT</label>
+                    <input type="text" id="unit" value="sess">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group">
+                    <label>TYPE</label>
+                    <select id="type" onchange="updateUnit()">
+                        <option value="reps">Reps</option>
+                        <option value="time">Time</option>
+                        <option value="hydration">Hydration</option>
+                        <option value="boolean">Boolean (Checkbox)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>ATTRIBUTE</label>
+                    <select id="attr">
+                        <option value="strength">Strength</option>
+                        <option value="agility">Agility</option>
+                        <option value="intelligence">Intelligence</option>
+                        <option value="discipline">Discipline</option>
+                    </select>
+                </div>
+            </div>
+            <button class="add" onclick="addEntry()">Add Protocol</button>
+        </div>
+
+        <div class="card">
+            <h2>Manifest</h2>
+            <div id="list"></div>
+            <div style="margin-top: 20px;">
+                <label>GENERATED JSON</label>
+                <pre id="jsonOutput">[]</pre>
+            </div>
+            <button onclick="copyToClipboard()" style="margin-top: 10px;">Copy JSON</button>
+        </div>
+    </div>
+
+    <script>
+        let protocols = [];
+
+        function updateUnit() {
+            const type = document.getElementById('type').value;
+            const unit = document.getElementById('unit');
+            if(type === 'time') unit.value = 'min';
+            else if(type === 'hydration') unit.value = 'ml';
+            else if(type === 'boolean') unit.value = 'sess';
+            else unit.value = 'reps';
+        }
+
+        function addEntry() {
+            const title = document.getElementById('title').value;
+            const desc = document.getElementById('desc').value;
+            const target = document.getElementById('target').value;
+            const unit = document.getElementById('unit').value;
+            const type = document.getElementById('type').value;
+            const attr = document.getElementById('attr').value;
+
+            if(!title) return alert("Title required");
+
+            // Erstelle eine zufällige kurze ID, damit wir Referenzen haben
+            const id = 'p_' + Math.random().toString(36).substr(2, 5);
+
+            const entry = {
+                id: id,
+                title: title,
+                description: desc,
+                defaultTarget: parseFloat(target),
+                unit: unit,
+                type: type, // string value matching enum
+                attribute: attr // string value matching enum
+            };
+
+            protocols.push(entry);
+            render();
+            
+            // Reset Fields
+            document.getElementById('title').value = '';
+            document.getElementById('desc').value = '';
+        }
+
+        function render() {
+            const list = document.getElementById('list');
+            list.innerHTML = '';
+            
+            protocols.forEach((p, index) => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.innerHTML = `
+                    <div>
+                        <span class="tag" style="color: cyan">${p.attribute.toUpperCase()}</span>
+                        <span class="tag">${p.type.toUpperCase()}</span>
+                        <strong>${p.title}</strong>
+                        <span style="color: #666; margin-left: 5px;">${p.defaultTarget} ${p.unit}</span>
+                    </div>
+                    <button style="width: auto; padding: 4px 8px; font-size: 10px; background: #333; color: white;" onclick="remove(${index})">X</button>
+                `;
+                list.appendChild(div);
+            });
+
+            document.getElementById('jsonOutput').innerText = JSON.stringify(protocols, null, 2);
+        }
+
+        function remove(index) {
+            protocols.splice(index, 1);
+            render();
+        }
+
+        function copyToClipboard() {
+            const content = document.getElementById('jsonOutput').innerText;
+            navigator.clipboard.writeText(content).then(() => {
+                alert("Copied to clipboard!");
+            });
+        }
+    </script>
+</body>
+</html>

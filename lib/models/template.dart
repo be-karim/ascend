@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart'; // Für IconData
 import 'package:hive/hive.dart';
 import 'package:ascend/models/enums.dart';
 
@@ -13,6 +14,7 @@ class ChallengeTemplate {
   @HiveField(5) final ChallengeType type;
   @HiveField(6) final ChallengeAttribute attribute;
   @HiveField(7) final Difficulty difficulty;
+  @HiveField(8) final int? iconCodePoint; // NEU: Individuelles Icon
 
   ChallengeTemplate({
     required this.id,
@@ -23,8 +25,12 @@ class ChallengeTemplate {
     required this.type,
     required this.attribute,
     this.difficulty = Difficulty.iron,
+    this.iconCodePoint,
   });
   
+  // Helper
+  IconData? get icon => iconCodePoint != null ? IconData(iconCodePoint!, fontFamily: 'MaterialIcons') : null;
+
   ChallengeTemplate copyWith({
     String? id,
     String? title,
@@ -34,6 +40,7 @@ class ChallengeTemplate {
     ChallengeType? type,
     ChallengeAttribute? attribute,
     Difficulty? difficulty,
+    int? iconCodePoint,
   }) {
     return ChallengeTemplate(
       id: id ?? this.id,
@@ -44,6 +51,7 @@ class ChallengeTemplate {
       type: type ?? this.type,
       attribute: attribute ?? this.attribute,
       difficulty: difficulty ?? this.difficulty,
+      iconCodePoint: iconCodePoint ?? this.iconCodePoint,
     );
   }
 }

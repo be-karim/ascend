@@ -1,3 +1,4 @@
+import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ascend/theme.dart';
@@ -6,6 +7,7 @@ import 'package:ascend/models/routine.dart';
 import 'package:ascend/models/enums.dart';
 import 'package:ascend/providers/game_state_provider.dart';
 import 'package:ascend/screens/stack_builder_screen.dart';
+import 'package:ascend/widgets/add_protocol_modal.dart'; // Importieren!
 
 class MissionControlScreen extends ConsumerStatefulWidget {
   const MissionControlScreen({super.key});
@@ -24,25 +26,24 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("MISSION PLANNING", style: TextStyle(letterSpacing: 2.0, fontWeight: FontWeight.bold, fontSize: 16)),
+        title: const Text("MISSION CONTROL", style: TextStyle(letterSpacing: 2.0, fontWeight: FontWeight.bold, fontSize: 16)),
         centerTitle: true,
         backgroundColor: AscendTheme.background,
         elevation: 0,
-        automaticallyImplyLeading: false, // Kein Zurück-Pfeil
+        automaticallyImplyLeading: false, 
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Routines Header
+            // --- ROUTINES SECTION ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _buildSectionTitle("ROUTINE PACKAGES"),
                 IconButton(
                   onPressed: () {
-                    // StackBuilder ist ein neuer Screen, daher Push ok
                     Navigator.push(context, MaterialPageRoute(builder: (context) => const StackBuilderScreen()));
                   },
                   icon: const Icon(Icons.add_circle, color: AscendTheme.secondary),
@@ -51,33 +52,48 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              height: 160,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: routines.length,
-                itemBuilder: (ctx, i) => _buildRoutineCard(routines[i]),
+            
+            if (routines.isEmpty)
+              _buildEmptyRoutinesState()
+            else
+              SizedBox(
+                height: 160,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: routines.length,
+                  itemBuilder: (ctx, i) => _buildRoutineCard(routines[i]),
+                ),
               ),
-            ),
             
-            const SizedBox(height: 30),
+            const SizedBox(height: 40),
             
-            // Library Header
+            // --- LIBRARY SECTION ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _buildSectionTitle("PROTOCOL LIBRARY"),
-                IconButton(
-                  onPressed: () => _showAddTemplateDialog(),
-                  icon: const Icon(Icons.add, color: AscendTheme.textDim),
-                  tooltip: "Add to Library",
-                ),
+                // Nur zeigen wenn Library NICHT leer ist (sonst haben wir den großen Button unten)
+                if (library.isNotEmpty)
+                  IconButton(
+                    onPressed: () => showModalBottomSheet(
+                        context: context, 
+                        isScrollControlled: true, 
+                        backgroundColor: Colors.transparent, 
+                        builder: (c) => const AddProtocolModal()
+                    ),
+                    icon: const Icon(Icons.add, color: AscendTheme.textDim),
+                    tooltip: "Add Protocol",
+                  ),
               ],
             ),
             const SizedBox(height: 12),
-            ...library.map((template) => _buildTemplateTile(template)),
             
-            const SizedBox(height: 40),
+            if (library.isEmpty)
+              _buildEmptyLibraryState(context)
+            else
+              ...library.map((template) => _buildTemplateTile(template)),
+            
+            const SizedBox(height: 100), // Platz für Navigation Bar
           ],
         ),
       ),
@@ -91,6 +107,55 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
     );
   }
 
+  // --- EMPTY STATES ---
+
+  Widget _buildEmptyRoutinesState() {
+    return DottedBorder(child: Container(
+      height: 100,
+      width: double.infinity,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Text("NO ROUTINES COMPILED", style: TextStyle(color: AscendTheme.textDim, fontSize: 10, letterSpacing: 1.0)),
+    ));
+  }
+
+  Widget _buildEmptyLibraryState(BuildContext context) {
+    return DottedBorder(
+      child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: AscendTheme.surface.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.library_books_outlined, size: 40, color: AscendTheme.textDim),
+          const SizedBox(height: 16),
+          const Text("LIBRARY EMPTY", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+          const SizedBox(height: 8),
+          const Text("Initialize new protocols to build routines.", textAlign: TextAlign.center, style: TextStyle(color: AscendTheme.textDim, fontSize: 12)),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () => showModalBottomSheet(
+                context: context, 
+                isScrollControlled: true, 
+                backgroundColor: Colors.transparent, 
+                builder: (c) => const AddProtocolModal()
+            ),
+            icon: const Icon(Icons.add),
+            label: const Text("CREATE PROTOCOL"),
+            style: ElevatedButton.styleFrom(backgroundColor: AscendTheme.secondary.withValues(alpha: 0.2), foregroundColor: AscendTheme.secondary),
+          )
+        ],
+      ),
+    ));
+  }
+
+  // --- CARDS & TILES ---
+
   Widget _buildRoutineCard(RoutineStack stack) {
     return Container(
       width: 140,
@@ -98,10 +163,9 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
       child: InkWell(
         onTap: () {
           ref.read(gameProvider.notifier).addRoutine(stack);
-          // KEIN Pop mehr, nur Feedback
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("ROUTINE DEPLOYED: ${stack.title}"),
+              content: Text("DEPLOYED: ${stack.title}"), 
               backgroundColor: AscendTheme.secondary,
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 1),
@@ -148,10 +212,9 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
       child: ListTile(
         onTap: () {
           ref.read(gameProvider.notifier).addChallenge(template);
-          // KEIN Pop mehr
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("ADDED: ${template.title}"),
+              content: Text("ADDED: ${template.title}"), 
               backgroundColor: AscendTheme.primary,
               behavior: SnackBarBehavior.floating,
               duration: const Duration(milliseconds: 800),
@@ -164,7 +227,7 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
             color: color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(_getTypeIcon(template.type), color: color, size: 20),
+          child: Icon(template.icon ?? _getTypeIcon(template.type), color: color, size: 20),
         ),
         title: Text(template.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
         subtitle: Text("${template.defaultTarget.toInt()} ${template.unit} • ${template.attribute.name.toUpperCase()}", style: const TextStyle(color: AscendTheme.textDim, fontSize: 10)),
@@ -176,81 +239,7 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
     );
   }
 
-  // --- DIALOGS (Bleiben gleich wie vorher) ---
-  void _showAddTemplateDialog() {
-    final titleCtrl = TextEditingController();
-    final targetCtrl = TextEditingController();
-    final unitCtrl = TextEditingController(text: "reps");
-    ChallengeType selectedType = ChallengeType.reps;
-    ChallengeAttribute selectedAttr = ChallengeAttribute.strength;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setState) {
-          return AlertDialog(
-            backgroundColor: AscendTheme.surface,
-            title: const Text("NEW PROTOCOL", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(controller: titleCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Title", labelStyle: TextStyle(color: AscendTheme.textDim))),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(child: TextField(controller: targetCtrl, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Target", labelStyle: TextStyle(color: AscendTheme.textDim)))),
-                      const SizedBox(width: 10),
-                      Expanded(child: TextField(controller: unitCtrl, style: const TextStyle(color: Colors.white), decoration: const InputDecoration(labelText: "Unit", labelStyle: TextStyle(color: AscendTheme.textDim)))),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  DropdownButton<ChallengeAttribute>(
-                    value: selectedAttr,
-                    dropdownColor: AscendTheme.surface,
-                    isExpanded: true,
-                    items: ChallengeAttribute.values.map((e) => DropdownMenuItem(value: e, child: Text(e.name.toUpperCase(), style: const TextStyle(color: Colors.white)))).toList(),
-                    onChanged: (val) => setState(() => selectedAttr = val!),
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButton<ChallengeType>(
-                    value: selectedType,
-                    dropdownColor: AscendTheme.surface,
-                    isExpanded: true,
-                    items: ChallengeType.values.map((e) => DropdownMenuItem(value: e, child: Text(e.name.toUpperCase(), style: const TextStyle(color: Colors.white)))).toList(),
-                    onChanged: (val) => setState(() => selectedType = val!),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL", style: TextStyle(color: AscendTheme.textDim))),
-              TextButton(
-                onPressed: () {
-                  final val = double.tryParse(targetCtrl.text);
-                  if (titleCtrl.text.isNotEmpty && val != null) {
-                    final newTemplate = ChallengeTemplate(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      title: titleCtrl.text,
-                      description: "Custom",
-                      defaultTarget: val,
-                      unit: unitCtrl.text,
-                      type: selectedType,
-                      attribute: selectedAttr
-                    );
-                    ref.read(gameProvider.notifier).addNewTemplate(newTemplate);
-                    Navigator.pop(ctx);
-                  }
-                }, 
-                child: const Text("CREATE", style: TextStyle(color: AscendTheme.secondary, fontWeight: FontWeight.bold))
-              ),
-            ],
-          );
-        }
-      ),
-    );
-  }
-
+  // --- EDIT DIALOG (Legacy, could also be modernized later) ---
   void _showEditTemplateDialog(ChallengeTemplate template) {
     final targetCtrl = TextEditingController(text: template.defaultTarget.toInt().toString());
     final unitCtrl = TextEditingController(text: template.unit);
@@ -273,7 +262,7 @@ class _MissionControlScreenState extends ConsumerState<MissionControlScreen> {
             TextField(
               controller: unitCtrl,
               style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(labelText: "Unit (e.g. reps, min)", labelStyle: TextStyle(color: AscendTheme.textDim)),
+              decoration: const InputDecoration(labelText: "Unit", labelStyle: TextStyle(color: AscendTheme.textDim)),
             ),
           ],
         ),
