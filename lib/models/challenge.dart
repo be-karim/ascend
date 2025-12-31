@@ -1,6 +1,6 @@
 import 'package:hive/hive.dart';
 import 'package:ascend/models/enums.dart';
-import 'challenge_log.dart'; // Importieren
+import 'package:ascend/models/challenge_log.dart'; // Sicherstellen, dass diese Datei existiert
 
 part 'challenge.g.dart';
 
@@ -10,7 +10,7 @@ class Challenge {
   @HiveField(1) final String templateId;
   @HiveField(2) final String name;
   
-  // WICHTIG: Feld 'current' entfernt, dafür 'logs' hinzugefügt
+  // WICHTIG: 'current' entfernt, dafür 'logs' hinzugefügt
   @HiveField(11) final List<ChallengeLog> logs; 
   
   @HiveField(4) double target;
@@ -25,7 +25,6 @@ class Challenge {
     required this.id,
     required this.templateId,
     required this.name,
-    // current ist nicht mehr im Konstruktor!
     this.logs = const [], // Standardmäßig leer
     required this.target,
     required this.unit,
@@ -36,9 +35,7 @@ class Challenge {
     this.completedAt,
   });
 
-  // --- DER TRICK ---
-  // Der Rest der App denkt, es gäbe eine Variable 'current'.
-  // In Wahrheit berechnen wir es live.
+  // Die App "denkt", es gibt current, aber wir berechnen es live.
   double get current => logs.fold(0.0, (sum, item) => sum + item.amount);
 
   bool get isCompleted => current >= target;

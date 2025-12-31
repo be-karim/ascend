@@ -1,5 +1,5 @@
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:flutter/material.dart'; // Wichtig für Icons
+import 'package:flutter/material.dart'; // Für Icons
 import 'package:ascend/models/challenge.dart';
 import 'package:ascend/models/template.dart';
 import 'package:ascend/models/routine.dart';
@@ -10,7 +10,6 @@ import 'package:ascend/models/challenge_log.dart';
 import 'package:ascend/repositories/challenges_repository.dart';
 
 class HiveChallengesRepository implements ChallengesRepository {
-  // ... (Box Namen bleiben gleich) ...
   static const String boxLibrary = 'libraryBox';
   static const String boxRoutines = 'routinesBox';
   static const String boxChallenges = 'activeChallengesBox';
@@ -25,10 +24,9 @@ class HiveChallengesRepository implements ChallengesRepository {
   late Box<HistoryEntry> _historyBox;
   late Box _settingsBox;
 
-  // ... (init Methode und Adapter Registrierung bleiben gleich) ...
   Future<void> init() async {
     await Hive.initFlutter();
-    // Adapter Registration hier...
+    
     Hive.registerAdapter(ChallengeTypeAdapter());
     Hive.registerAdapter(ChallengeAttributeAdapter());
     Hive.registerAdapter(DifficultyAdapter());
@@ -53,15 +51,15 @@ class HiveChallengesRepository implements ChallengesRepository {
   Future<void> _seedDefaultsIfNeeded() async {
     if (_libraryBox.isEmpty) {
       final defaults = [
-        // --- BODY (Strength & Agility) ---
+        // --- BODY (Agility / Strength) ---
         ChallengeTemplate(
-          id: 'p_xmkqp', title: 'Yoga Stretching', description: 'Video Session',
+          id: 'p_xmkqp', title: 'Yoga Stretching', description: 'YouTube Session',
           defaultTarget: 1, unit: 'sess', type: ChallengeType.boolean, attribute: ChallengeAttribute.agility,
           iconCodePoint: Icons.self_improvement.codePoint
         ),
         ChallengeTemplate(
           id: 'p_o9f1e', title: 'Morning Run', description: 'Planten un Blomen',
-          defaultTarget: 5, unit: 'km', type: ChallengeType.reps, attribute: ChallengeAttribute.agility, // Korrigiert auf Reps/KM
+          defaultTarget: 5, unit: 'km', type: ChallengeType.reps, attribute: ChallengeAttribute.agility,
           iconCodePoint: Icons.directions_run.codePoint
         ),
         ChallengeTemplate(
@@ -70,7 +68,7 @@ class HiveChallengesRepository implements ChallengesRepository {
           iconCodePoint: Icons.accessibility_new.codePoint
         ),
         ChallengeTemplate(
-          id: 'p_nc23e', title: 'Push Ups', description: 'Volume',
+          id: 'p_nc23e', title: 'Push Ups', description: 'Volume Training',
           defaultTarget: 200, unit: 'reps', type: ChallengeType.reps, attribute: ChallengeAttribute.strength,
           iconCodePoint: Icons.fitness_center.codePoint
         ),
@@ -87,17 +85,17 @@ class HiveChallengesRepository implements ChallengesRepository {
 
         // --- MIND (Intelligence) ---
         ChallengeTemplate(
-          id: 'p_1nhas', title: 'Learning Italian', description: 'Vocabulary & Grammar',
+          id: 'p_1nhas', title: 'Learning Italian', description: 'Vocab & Grammar',
           defaultTarget: 30, unit: 'min', type: ChallengeType.time, attribute: ChallengeAttribute.intelligence,
           iconCodePoint: Icons.language.codePoint
         ),
         ChallengeTemplate(
-          id: 'p_aars5', title: 'Reading Book', description: 'Non-Fiction',
+          id: 'p_aars5', title: 'Reading Book', description: 'Deep Focus',
           defaultTarget: 30, unit: 'min', type: ChallengeType.time, attribute: ChallengeAttribute.intelligence,
           iconCodePoint: Icons.menu_book.codePoint
         ),
         ChallengeTemplate(
-          id: 'p_uuljt', title: 'Listening Podcast', description: 'Educational',
+          id: 'p_uuljt', title: 'Podcast Learning', description: 'Educational',
           defaultTarget: 15, unit: 'min', type: ChallengeType.time, attribute: ChallengeAttribute.intelligence,
           iconCodePoint: Icons.headphones.codePoint
         ),
@@ -119,13 +117,13 @@ class HiveChallengesRepository implements ChallengesRepository {
           iconCodePoint: Icons.air.codePoint
         ),
         ChallengeTemplate(
-          id: 'p_8v2e8', title: 'Cold Shower', description: 'Exposure',
-          defaultTarget: 1, unit: 'sess', type: ChallengeType.boolean, attribute: ChallengeAttribute.discipline, // Korrigiert auf Boolean
+          id: 'p_8v2e8', title: 'Cold Shower', description: 'Exposure Therapy',
+          defaultTarget: 1, unit: 'sess', type: ChallengeType.boolean, attribute: ChallengeAttribute.discipline,
           iconCodePoint: Icons.ac_unit.codePoint
         ),
         ChallengeTemplate(
           id: 'p_ktyz9', title: 'Day Planning', description: 'Structure Tomorrow',
-          defaultTarget: 1, unit: 'sess', type: ChallengeType.boolean, attribute: ChallengeAttribute.discipline, // Korrigiert auf Boolean
+          defaultTarget: 1, unit: 'sess', type: ChallengeType.boolean, attribute: ChallengeAttribute.discipline,
           iconCodePoint: Icons.calendar_today.codePoint
         ),
       ];
@@ -142,7 +140,7 @@ class HiveChallengesRepository implements ChallengesRepository {
     }
   }
 
-  // --- STANDARD METHODEN (Copy-Paste vom alten File, unverändert) ---
+  // --- STANDARD METHODEN (Ab hier unverändert, aber wichtig für Interface) ---
   @override
   Future<List<ChallengeTemplate>> fetchTemplates() async => _libraryBox.values.toList();
 
