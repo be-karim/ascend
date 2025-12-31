@@ -1,6 +1,6 @@
 import 'package:hive/hive.dart';
 import 'package:ascend/models/enums.dart';
-import 'package:ascend/models/challenge_log.dart'; // Sicherstellen, dass diese Datei existiert
+import 'package:ascend/models/challenge_log.dart';
 
 part 'challenge.g.dart';
 
@@ -10,7 +10,6 @@ class Challenge {
   @HiveField(1) final String templateId;
   @HiveField(2) final String name;
   
-  // WICHTIG: 'current' entfernt, dafür 'logs' hinzugefügt
   @HiveField(11) final List<ChallengeLog> logs; 
   
   @HiveField(4) double target;
@@ -20,12 +19,15 @@ class Challenge {
   @HiveField(8) bool isRunning;
   @HiveField(9) final DateTime dateAssigned;
   @HiveField(10) DateTime? completedAt;
+  
+  // NEU: Priority Flag
+  @HiveField(12) bool isPriority; 
 
   Challenge({
     required this.id,
     required this.templateId,
     required this.name,
-    this.logs = const [], // Standardmäßig leer
+    this.logs = const [],
     required this.target,
     required this.unit,
     required this.type,
@@ -33,9 +35,10 @@ class Challenge {
     required this.dateAssigned,
     this.isRunning = false,
     this.completedAt,
+    this.isPriority = false, // Standard: Nein
   });
 
-  // Die App "denkt", es gibt current, aber wir berechnen es live.
+  // Dynamische Berechnung aus den Logs
   double get current => logs.fold(0.0, (sum, item) => sum + item.amount);
 
   bool get isCompleted => current >= target;

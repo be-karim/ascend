@@ -18,8 +18,8 @@ class StatAttributeAdapter extends TypeAdapter<StatAttribute> {
     };
     return StatAttribute(
       level: fields[0] as int,
-      currentXp: fields[1] as int,
-      maxXp: fields[2] as int,
+      currentXp: fields[1] as double,
+      maxXp: fields[2] as double,
       tier: fields[3] as int,
     );
   }
@@ -65,16 +65,17 @@ class PlayerStatsAdapter extends TypeAdapter<PlayerStats> {
       intelligence: fields[2] as StatAttribute,
       discipline: fields[3] as StatAttribute,
       globalLevel: fields[4] as int,
-      currentXp: fields[5] as int,
-      maxXp: fields[7] as int,
+      currentXp: fields[5] as double,
+      maxXp: fields[7] as double,
       streak: fields[6] as int,
+      mercyTokenAvailable: fields[8] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, PlayerStats obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.strength)
       ..writeByte(1)
@@ -90,7 +91,9 @@ class PlayerStatsAdapter extends TypeAdapter<PlayerStats> {
       ..writeByte(6)
       ..write(obj.streak)
       ..writeByte(7)
-      ..write(obj.maxXp);
+      ..write(obj.maxXp)
+      ..writeByte(8)
+      ..write(obj.mercyTokenAvailable);
   }
 
   @override

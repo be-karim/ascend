@@ -48,9 +48,9 @@ class XPService {
 
   /// Prüft auf Level-Up und gibt das aktualisierte Attribut zurück
   StatAttribute applyXP(StatAttribute stat, int xpAmount) {
-    int newCurrent = stat.currentXp + xpAmount;
+    double newCurrent = stat.currentXp + xpAmount;
     int newLevel = stat.level;
-    int newMax = stat.maxXp;
+    double newMax = stat.maxXp;
     int newTier = stat.tier;
 
     // Level-Up Schleife (falls man so viel XP bekommt, dass man mehrere Level aufsteigt)
@@ -67,7 +67,7 @@ class XPService {
 
       // Neue Max XP berechnen für das nächste Level
       // Formel: 100 * (Level ^ 1.6) * (1.2 ^ Tier) -> Tier macht es auch schwerer
-      newMax = (BASE_LEVEL_XP * pow(newLevel, LEVEL_EXPONENT) * pow(1.1, newTier)).floor();
+      newMax = (BASE_LEVEL_XP * pow(newLevel, LEVEL_EXPONENT) * pow(1.1, newTier)).floor() as double;
     }
 
     return stat.copyWith(

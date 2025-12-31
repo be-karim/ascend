@@ -28,13 +28,14 @@ class ChallengeAdapter extends TypeAdapter<Challenge> {
       dateAssigned: fields[9] as DateTime,
       isRunning: fields[8] as bool,
       completedAt: fields[10] as DateTime?,
+      isPriority: fields[12] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, Challenge obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(12)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -56,7 +57,9 @@ class ChallengeAdapter extends TypeAdapter<Challenge> {
       ..writeByte(9)
       ..write(obj.dateAssigned)
       ..writeByte(10)
-      ..write(obj.completedAt);
+      ..write(obj.completedAt)
+      ..writeByte(12)
+      ..write(obj.isPriority);
   }
 
   @override

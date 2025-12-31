@@ -1,21 +1,28 @@
 import 'package:hive/hive.dart';
+import 'package:ascend/models/enums.dart';
 
 part 'stats.g.dart';
 
 @HiveType(typeId: 3)
 class StatAttribute {
-  @HiveField(0)
-  final int level;
-  @HiveField(1)
-  final int currentXp;
-  @HiveField(2)
-  final int maxXp;
-  @HiveField(3)
-  final int tier;
+  @HiveField(0) final int level;
+  @HiveField(1) final double currentXp; // Changed to double for precision
+  @HiveField(2) final double maxXp;     // Changed to double
+  @HiveField(3) final int tier;         // WIEDER DA!
 
-  const StatAttribute({this.level = 1, this.currentXp = 0, this.maxXp = 100, this.tier = 0});
+  const StatAttribute({
+    this.level = 1,
+    this.currentXp = 0.0,
+    this.maxXp = 100.0,
+    this.tier = 0,
+  });
 
-  StatAttribute copyWith({int? level, int? currentXp, int? maxXp, int? tier}) {
+  StatAttribute copyWith({
+    int? level,
+    double? currentXp,
+    double? maxXp,
+    int? tier,
+  }) {
     return StatAttribute(
       level: level ?? this.level,
       currentXp: currentXp ?? this.currentXp,
@@ -31,11 +38,14 @@ class PlayerStats {
   @HiveField(1) final StatAttribute agility;
   @HiveField(2) final StatAttribute intelligence;
   @HiveField(3) final StatAttribute discipline;
+  
   @HiveField(4) final int globalLevel;
-  @HiveField(5) final int currentXp;
-  @HiveField(6) final int streak; // Renamed from maxXp to streak for clarity? Or keeping maxXp separate? 
-  // Let's keep your original fields:
-  @HiveField(7) final int maxXp;
+  @HiveField(5) final double currentXp; // Changed to double
+  @HiveField(6) final int streak;       // WIEDER DA!
+  @HiveField(7) final double maxXp;     // Changed to double
+  
+  // NEU: Mercy System
+  @HiveField(8) final bool mercyTokenAvailable; 
 
   const PlayerStats({
     required this.strength,
@@ -43,9 +53,10 @@ class PlayerStats {
     required this.intelligence,
     required this.discipline,
     this.globalLevel = 1,
-    this.currentXp = 0,
-    this.maxXp = 1000,
+    this.currentXp = 0.0,
+    this.maxXp = 1000.0,
     this.streak = 0,
+    this.mercyTokenAvailable = true, // Standard: Jeden Tag verfügbar
   });
 
   PlayerStats copyWith({
@@ -54,9 +65,10 @@ class PlayerStats {
     StatAttribute? intelligence,
     StatAttribute? discipline,
     int? globalLevel,
-    int? currentXp,
-    int? maxXp,
+    double? currentXp,
     int? streak,
+    double? maxXp,
+    bool? mercyTokenAvailable,
   }) {
     return PlayerStats(
       strength: strength ?? this.strength,
@@ -65,8 +77,9 @@ class PlayerStats {
       discipline: discipline ?? this.discipline,
       globalLevel: globalLevel ?? this.globalLevel,
       currentXp: currentXp ?? this.currentXp,
-      maxXp: maxXp ?? this.maxXp,
       streak: streak ?? this.streak,
+      maxXp: maxXp ?? this.maxXp,
+      mercyTokenAvailable: mercyTokenAvailable ?? this.mercyTokenAvailable,
     );
   }
 }

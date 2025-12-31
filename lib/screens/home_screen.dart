@@ -57,9 +57,7 @@ class HomeScreen extends ConsumerWidget {
             
             const SizedBox(height: 30),
             
-            // Hero Section (Summary Cards)
-            _buildHeroStats(player.streak, activeChallenges),
-            
+            // Hero Section (Summary Cards)            
             const SizedBox(height: 30),
             
             const Text(
@@ -97,7 +95,7 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildAvatarRing(int level, int current, int max) {
+  Widget _buildAvatarRing(int level, double current, double max) {
     double progress = max > 0 ? current / max : 0.0;
     
     return Stack(
