@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ascend/models/challenge.dart';
@@ -34,22 +35,62 @@ class ActiveChallengeCard extends StatefulWidget {
 }
 
 class _ActiveChallengeCardState extends State<ActiveChallengeCard> {
-  // Lokaler State für flüssige Animation ohne Datenbank-Lag
   double _sliderValue = 0.0;
   bool _isSliding = false;
+  
+  // Timer State
+  Timer? _ticker;
 
   @override
   void initState() {
     super.initState();
     _sliderValue = widget.task.current;
+    _checkTimerState();
   }
 
   @override
   void didUpdateWidget(ActiveChallengeCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Nur updaten, wenn der User NICHT gerade schiebt, sonst springt der Slider unter dem Finger weg
-    if (!_isSliding) {
-      _sliderValue = widget.task.current;
+    
+    // Timer Check
+    if (oldWidget.task.isRunning != widget.task.isRunning) {
+      _checkTimerState();
+    }
+
+    // Sync DB -> Slider (wenn nicht gerade geschoben wird)
+    if (!_isSliding && oldWidget.task.current != widget.task.current) {
+      if (!widget.task.isRunning) {
+        setState(() => _sliderValue = widget.task.current);
+      } else {
+        // Soft Sync während Timer läuft
+        if ((_sliderValue - widget.task.current).abs() > 0.1) {
+           _sliderValue = widget.task.current;
+        }
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  void _checkTimerState() {
+    _ticker?.cancel();
+    if (widget.task.isRunning) {
+      // Ticker startet: Jede Sekunde UI updaten & speichern
+      _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted) return;
+        setState(() {
+          // Einheit ist Minuten (1/60) oder Standard (1.0)
+          double increment = widget.task.unit.toLowerCase().contains('min') ? (1 / 60) : 1.0;
+          _sliderValue += increment;
+          
+          // Auto-Save in DB
+          widget.onUpdate(increment);
+        });
+      });
     }
   }
 
@@ -58,8 +99,8 @@ class _ActiveChallengeCardState extends State<ActiveChallengeCard> {
     final color = _getColor(widget.task.attribute);
     final isDone = widget.task.isCompleted;
     
-    // WICHTIG: Visueller Fortschritt basiert auf Slider (direkt) oder Task (wenn inaktiv)
-    final double displayValue = _isSliding ? _sliderValue : widget.task.current;
+    // Welchen Wert zeigen wir an?
+    final double displayValue = _isSliding ? _sliderValue : (_ticker != null ? _sliderValue : widget.task.current);
     final double progress = (displayValue / widget.task.target).clamp(0.0, 1.0);
     
     final double cardHeight = widget.isPriority ? 360 : 130; 
@@ -85,27 +126,43 @@ class _ActiveChallengeCardState extends State<ActiveChallengeCard> {
           ),
           child: Stack(
             children: [
-              // 1. LIQUID FILL BACKGROUND (Game Feel)
-              // Reagiert jetzt sofort auf den Slider
+              // BACKGROUND
               Align(
                 alignment: Alignment.bottomCenter,
-                child: AnimatedContainer(
-                  duration: _isSliding ? Duration.zero : const Duration(milliseconds: 500),
-                  curve: Curves.easeOutCubic,
-                  height: cardHeight * progress,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: isDone ? AscendTheme.accent.withValues(alpha: 0.15) : color.withValues(alpha: 0.15),
-                  ),
+                child: FractionallySizedBox(
+                  heightFactor: progress,
+                  widthFactor: 1.0,
+                  child: Container(color: isDone ? AscendTheme.accent.withValues(alpha: 0.15) : color.withValues(alpha: 0.15)),
                 ),
               ),
 
-              // 2. CONTENT
+              // CONTENT
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: widget.isPriority 
-                  ? _buildPriorityContent(context, color, isDone, displayValue) 
-                  : _buildCompactContent(context, color, isDone, displayValue),
+                  ? _PriorityLayout(
+                      task: widget.task, 
+                      color: color, 
+                      isDone: isDone, 
+                      displayValue: displayValue,
+                      sliderValue: _sliderValue,
+                      onSliderChange: _handleSliderChange,
+                      onSliderEnd: _handleSliderEnd,
+                      onToggleTimer: _handleTimerToggle,
+                      onMarkDone: () => widget.onUpdate(1),
+                      onCalibrate: () => _showSmartCalibrationDialog(context),
+                    )
+                  : _CompactLayout(
+                      task: widget.task,
+                      color: color,
+                      isDone: isDone,
+                      displayValue: displayValue,
+                      sliderValue: _sliderValue,
+                      onSliderChange: _handleSliderChange,
+                      onSliderEnd: _handleSliderEnd,
+                      onToggleTimer: _handleTimerToggle,
+                      onMarkDone: () => widget.onUpdate(1),
+                    ),
               ),
             ],
           ),
@@ -114,207 +171,307 @@ class _ActiveChallengeCardState extends State<ActiveChallengeCard> {
     );
   }
 
-  // --- LAYOUTS ---
+  // --- LOGIC ---
 
-  Widget _buildPriorityContent(BuildContext context, Color color, bool isDone, double displayValue) {
+  void _handleTimerToggle() {
+    HapticFeedback.mediumImpact();
+    widget.onTimerToggle();
+  }
+
+  void _handleSliderChange(double val) {
+    setState(() {
+      _isSliding = true;
+      _sliderValue = val;
+    });
+  }
+
+  void _handleSliderEnd(double val) {
+    setState(() => _isSliding = false);
+    double delta = val - widget.task.current;
+    
+    if (delta.abs() > 0.001) { 
+       widget.onUpdate(delta);
+       
+       // Visual Feedback
+       Offset center = (context.findRenderObject() as RenderBox).localToGlobal(Offset.zero) + const Offset(150, 100); 
+       String text = _formatFeedback(delta, widget.task.type);
+       FeedbackAnimation.show(context, center, text, _getColor(widget.task.attribute));
+    }
+  }
+
+  void _showSmartCalibrationDialog(BuildContext context) {
+    final controller = TextEditingController(text: widget.task.target.toInt().toString());
+    final bool hasToken = widget.mercyTokenAvailable;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF151A25),
+        title: const Text("TACTICAL CALIBRATION", style: TextStyle(color: Colors.white, fontSize: 14)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(hasToken ? "Mercy active. No XP cost." : "Mercy depleted. Cost: -150 XP.", style: TextStyle(color: hasToken ? AscendTheme.textDim : Colors.redAccent)),
+            const SizedBox(height: 10),
+            TextField(controller: controller, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white), textAlign: TextAlign.center, decoration: const InputDecoration(filled: true, fillColor: Colors.black)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL", style: TextStyle(color: Colors.white38))),
+          TextButton(onPressed: () {
+             final val = double.tryParse(controller.text);
+             if (val != null) { widget.onCalibrate(val, !hasToken); Navigator.pop(ctx); }
+          }, child: const Text("CONFIRM", style: TextStyle(color: AscendTheme.accent))),
+        ],
+      ),
+    );
+  }
+
+  String _formatFeedback(double delta, ChallengeType type) {
+    String sign = delta > 0 ? "+" : "";
+    if (type == ChallengeType.time) {
+      int sec = (delta * 60).toInt();
+      return "$sign${sec}s";
+    }
+    return "$sign${delta.toInt()}";
+  }
+}
+
+// --- LAYOUTS ---
+
+class _PriorityLayout extends StatelessWidget {
+  final Challenge task;
+  final Color color;
+  final bool isDone;
+  final double displayValue;
+  final double sliderValue;
+  final Function(double) onSliderChange;
+  final Function(double) onSliderEnd;
+  final VoidCallback onToggleTimer;
+  final VoidCallback onMarkDone;
+  final VoidCallback onCalibrate;
+
+  const _PriorityLayout({
+    required this.task, required this.color, required this.isDone, required this.displayValue,
+    required this.sliderValue, required this.onSliderChange, required this.onSliderEnd,
+    required this.onToggleTimer, required this.onMarkDone, required this.onCalibrate
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isTimer = task.type == ChallengeType.time;
+    final bool isNumeric = task.type != ChallengeType.boolean;
+
     return Column(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _buildBadge(color),
-            GestureDetector(
-              onTap: () => _showSmartCalibrationDialog(context),
-              child: Icon(Icons.settings, color: Colors.white.withValues(alpha: 0.2), size: 18),
-            ),
+            _Badge(text: task.attribute.name.toUpperCase(), color: color),
+            GestureDetector(onTap: onCalibrate, child: Icon(Icons.settings, color: Colors.white.withValues(alpha: 0.2), size: 18)),
           ],
         ),
-        
         Column(
           children: [
-            Icon(isDone ? Icons.check_circle : _getIcon(widget.task.type), size: 40, color: isDone ? AscendTheme.accent : color),
+            Icon(isDone ? Icons.check_circle : _getIcon(task.type), size: 40, color: isDone ? AscendTheme.accent : color),
             const SizedBox(height: 12),
-            Text(widget.task.name.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white), textAlign: TextAlign.center),
+            Text(task.name.toUpperCase(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white), textAlign: TextAlign.center),
             const SizedBox(height: 12),
             
-            // Value Display (Live Update)
-            Column(
-              children: [
-                Text(
-                  widget.task.type == ChallengeType.time 
-                    ? _formatDuration(displayValue.toInt()) 
-                    : "${displayValue.toInt()}", 
-                  style: const TextStyle(fontFamily: 'Courier', fontSize: 48, fontWeight: FontWeight.bold, color: Colors.white)
-                ),
-                Text(
-                  "/ ${widget.task.target.toInt()} ${widget.task.unit}", 
-                  style: const TextStyle(color: AscendTheme.textDim, fontSize: 12, fontWeight: FontWeight.bold)
-                ),
-              ],
-            ),
+            // PRIORITY VALUE DISPLAY
+            _ValueDisplay(task: task, value: displayValue, isPriority: true),
           ],
         ),
 
-        if (widget.task.type == ChallengeType.boolean || widget.task.type == ChallengeType.hydration)
-           _buildBooleanControls(color, isDone)
+        // CONTROLS
+        if (isTimer)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              GestureDetector(
+                onTap: onToggleTimer,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: task.isRunning ? Colors.white : Colors.white10),
+                  child: Icon(task.isRunning ? Icons.pause : Icons.play_arrow, size: 32, color: task.isRunning ? Colors.black : Colors.white),
+                ),
+              ),
+              const SizedBox(width: 20),
+              Expanded(child: _SliderControl(color: color, value: sliderValue, max: task.target, onChange: onSliderChange, onEnd: onSliderEnd)),
+            ],
+          )
+        else if (isNumeric)
+           _SliderControl(color: color, value: sliderValue, max: task.target, onChange: onSliderChange, onEnd: onSliderEnd)
         else
-           _buildSliderControl(color),
+           _BooleanControl(color: color, isDone: isDone, onAction: onMarkDone),
       ],
     );
   }
+}
 
-  Widget _buildCompactContent(BuildContext context, Color color, bool isDone, double displayValue) {
+class _CompactLayout extends StatelessWidget {
+  final Challenge task;
+  final Color color;
+  final bool isDone;
+  final double displayValue;
+  final double sliderValue;
+  final Function(double) onSliderChange;
+  final Function(double) onSliderEnd;
+  final VoidCallback onToggleTimer;
+  final VoidCallback onMarkDone;
+
+  const _CompactLayout({
+    required this.task, required this.color, required this.isDone, required this.displayValue,
+    required this.sliderValue, required this.onSliderChange, required this.onSliderEnd,
+    required this.onToggleTimer, required this.onMarkDone
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isTimer = task.type == ChallengeType.time;
+    final bool isNumeric = task.type != ChallengeType.boolean;
+
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Row(
           children: [
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 44, height: 44,
-                  child: CircularProgressIndicator(
-                    value: (displayValue / widget.task.target).clamp(0.0, 1.0),
-                    color: color, backgroundColor: Colors.white10, strokeWidth: 3,
-                  ),
-                ),
-                Icon(_getIcon(widget.task.type), color: isDone ? AscendTheme.accent : color, size: 20),
-              ],
-            ),
+            Stack(alignment: Alignment.center, children: [
+              SizedBox(width: 44, height: 44, child: CircularProgressIndicator(value: (displayValue / task.target).clamp(0.0, 1.0), color: color, backgroundColor: Colors.white10, strokeWidth: 3)),
+              Icon(_getIcon(task.type), color: isDone ? AscendTheme.accent : color, size: 20),
+            ]),
             const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.task.name, style: TextStyle(fontWeight: FontWeight.bold, color: isDone ? AscendTheme.textDim : Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  Text(
-                    widget.task.type == ChallengeType.time
-                      ? "${_formatDuration(displayValue.toInt())} / ${_formatDuration(widget.task.target.toInt())}"
-                      : "${displayValue.toInt()} / ${widget.task.target.toInt()} ${widget.task.unit}",
-                    style: const TextStyle(color: AscendTheme.textDim, fontSize: 11)
-                  ),
-                ],
-              ),
-            ),
-            if (widget.task.type == ChallengeType.time)
-              GestureDetector(
-               onTap: widget.onTimerToggle,
-               child: Container(
-                 padding: const EdgeInsets.all(8),
-                 decoration: BoxDecoration(shape: BoxShape.circle, color: widget.task.isRunning ? Colors.white : Colors.white.withValues(alpha: 0.1)),
-                 child: Icon(widget.task.isRunning ? Icons.pause : Icons.play_arrow, color: widget.task.isRunning ? Colors.black : Colors.white, size: 20)
-               ),
-             )
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(task.name, style: TextStyle(fontWeight: FontWeight.bold, color: isDone ? AscendTheme.textDim : Colors.white, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+              
+              // COMPACT VALUE DISPLAY (Timer visible here!)
+              _ValueDisplay(task: task, value: displayValue, isPriority: false),
+              
+            ])),
+            if (isTimer)
+              GestureDetector(onTap: onToggleTimer, child: Container(padding: const EdgeInsets.all(8), margin: const EdgeInsets.only(left: 8), decoration: BoxDecoration(shape: BoxShape.circle, color: task.isRunning ? Colors.white : Colors.white10), child: Icon(task.isRunning ? Icons.pause : Icons.play_arrow, color: task.isRunning ? Colors.black : Colors.white, size: 20))),
           ],
         ),
-        
         const SizedBox(height: 12),
-        
-        if (widget.task.type != ChallengeType.boolean && widget.task.type != ChallengeType.hydration)
-           SizedBox(
-             height: 30,
-             child: _buildSliderControl(color, compact: true),
-           ),
-        
-        if (widget.task.type == ChallengeType.boolean)
-            _buildBooleanControls(color, isDone, compact: true),
+        if (isNumeric)
+           SizedBox(height: 30, child: _SliderControl(color: color, value: sliderValue, max: task.target, onChange: onSliderChange, onEnd: onSliderEnd, compact: true)),
+        if (!isNumeric)
+            _BooleanControl(color: color, isDone: isDone, onAction: onMarkDone, compact: true),
       ],
     );
   }
+}
 
-  // --- CONTROLS ---
+// --- COMPONENTS ---
 
-  Widget _buildSliderControl(Color color, {bool compact = false}) {
+class _ValueDisplay extends StatelessWidget {
+  final Challenge task;
+  final double value;
+  final bool isPriority;
+
+  const _ValueDisplay({required this.task, required this.value, required this.isPriority});
+
+  @override
+  Widget build(BuildContext context) {
+    // FORMATTING: Always MM:SS for timers
+    String valStr = task.type == ChallengeType.time ? _formatTime(value) : "${value.toInt()}";
+    String targetStr = task.type == ChallengeType.time ? _formatTime(task.target) : "${task.target.toInt()}";
+    
+    // Priority Layout (Big)
+    if (isPriority) {
+      return Column(children: [
+        Text(valStr, style: const TextStyle(fontFamily: 'Courier', fontSize: 48, fontWeight: FontWeight.bold, color: Colors.white)),
+        Text("/ $targetStr ${task.unit}", style: const TextStyle(color: AscendTheme.textDim, fontSize: 12, fontWeight: FontWeight.bold)),
+      ]);
+    }
+    
+    // Compact Layout (Small but visible)
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(fontFamily: 'Courier', fontSize: 12, color: AscendTheme.textDim), // Monospace für Timer
+        children: [
+          TextSpan(text: valStr, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          TextSpan(text: " / $targetStr ${task.unit}"),
+        ]
+      ),
+    );
+  }
+
+  // ROBUSTE ZEIT-FORMATIERUNG (HH:MM:SS oder MM:SS)
+  String _formatTime(double valueInMinutes) {
+    int totalSeconds = (valueInMinutes * 60).round();
+    int h = totalSeconds ~/ 3600;
+    int m = (totalSeconds % 3600) ~/ 60;
+    int s = totalSeconds % 60;
+    
+    String mStr = m.toString().padLeft(2, '0');
+    String sStr = s.toString().padLeft(2, '0');
+    
+    if (h > 0) return "$h:$mStr:$sStr";
+    return "$mStr:$sStr";
+  }
+}
+
+class _SliderControl extends StatelessWidget {
+  final Color color;
+  final double value;
+  final double max;
+  final Function(double) onChange;
+  final Function(double) onEnd;
+  final bool compact;
+
+  const _SliderControl({required this.color, required this.value, required this.max, required this.onChange, required this.onEnd, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
     return Row(
       children: [
         if (!compact) Text("0", style: const TextStyle(color: Colors.white24, fontSize: 10)),
         Expanded(
           child: SliderTheme(
             data: SliderTheme.of(context).copyWith(
-              activeTrackColor: color,
-              inactiveTrackColor: Colors.white10,
-              thumbColor: Colors.white,
-              overlayColor: color.withValues(alpha: 0.2),
-              trackHeight: compact ? 4 : 8,
-              thumbShape: RoundSliderThumbShape(enabledThumbRadius: compact ? 8 : 12),
+              activeTrackColor: color, inactiveTrackColor: Colors.white10, thumbColor: Colors.white, overlayColor: color.withValues(alpha: 0.2),
+              trackHeight: compact ? 4 : 8, thumbShape: RoundSliderThumbShape(enabledThumbRadius: compact ? 8 : 12),
             ),
-            child: Slider(
-              value: _sliderValue.clamp(0.0, widget.task.target),
-              min: 0.0,
-              max: widget.task.target,
-              onChanged: (val) {
-                // Update Local UI instantly (Game Feel)
-                setState(() {
-                  _isSliding = true;
-                  _sliderValue = val;
-                });
-                // Haptik während des Schiebens ist nett, aber vielleicht zu viel. 
-                // Lassen wir es beim Loslassen oder nur leichte Haptik bei Steps.
-              },
-              onChangeEnd: (val) {
-                setState(() => _isSliding = false);
-                
-                // 1. Delta berechnen
-                double delta = val - widget.task.current;
-                
-                // 2. Datenbank Update
-                if (delta != 0) {
-                   widget.onUpdate(delta); 
-                   
-                   // 3. VISUAL FEEDBACK (XP FLYOUT)
-                   // Position des Sliders finden (ungefähr Daumen)
-                   // Wir nehmen einfach die Mitte der Karte für den Effekt, oder genauer:
-                   RenderBox box = context.findRenderObject() as RenderBox;
-                   Offset position = box.localToGlobal(box.size.center(Offset.zero));
-                   
-                   String text = delta > 0 ? "+${delta.toInt()}" : "${delta.toInt()}";
-                   if (widget.task.type == ChallengeType.time) text += " min";
-                   
-                   FeedbackAnimation.show(context, position, text, color);
-                }
-              },
-            ),
+            child: Slider(value: value.clamp(0.0, max), min: 0.0, max: max, onChanged: onChange, onChangeEnd: onEnd),
           ),
         ),
-        if (!compact) Text("${widget.task.target.toInt()}", style: const TextStyle(color: Colors.white24, fontSize: 10)),
+        if (!compact) Text("${max.toInt()}", style: const TextStyle(color: Colors.white24, fontSize: 10)),
       ],
     );
   }
+}
 
-  // ... (Restliche Methoden _buildBooleanControls, _buildBadge, _showSmartCalibrationDialog, _getColor, _getIcon bleiben gleich wie im vorherigen Code) ...
-  
-  // (Nur zur Sicherheit hier nochmal einfügen, falls du copy-paste machst:)
-  Widget _buildBooleanControls(Color color, bool isDone, {bool compact = false}) {
+class _BooleanControl extends StatelessWidget {
+  final Color color;
+  final bool isDone;
+  final VoidCallback onAction;
+  final bool compact;
+
+  const _BooleanControl({required this.color, required this.isDone, required this.onAction, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
     if (compact) {
-      return Align(alignment: Alignment.centerRight, child: isDone ? const Icon(Icons.check, color: AscendTheme.accent, size: 20) : GestureDetector(onTap: () => widget.onUpdate(1), child: Text("MARK DONE", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 10))));
+      return Align(alignment: Alignment.centerRight, child: isDone ? const Icon(Icons.check, color: AscendTheme.accent, size: 20) : GestureDetector(onTap: onAction, child: Text("MARK DONE", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 10))));
     }
-    if (widget.task.type == ChallengeType.time) {
-        return GestureDetector(onTap: widget.onTimerToggle, child: AnimatedContainer(duration: const Duration(milliseconds: 200), padding: const EdgeInsets.all(16), decoration: BoxDecoration(shape: BoxShape.circle, color: widget.task.isRunning ? Colors.white : Colors.white10, boxShadow: widget.task.isRunning ? [BoxShadow(color: Colors.white.withValues(alpha: 0.5), blurRadius: 15)] : []), child: Icon(widget.task.isRunning ? Icons.pause : Icons.play_arrow, size: 32, color: widget.task.isRunning ? Colors.black : Colors.white)));
-    }
-    return isDone ? Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: AscendTheme.accent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)), child: const Text("COMPLETED", style: TextStyle(color: AscendTheme.accent, fontWeight: FontWeight.bold))) : ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: color.withValues(alpha: 0.2), foregroundColor: color), onPressed: () => widget.onUpdate(1), child: const Text("MARK DONE"));
-  }
-  
-  Widget _buildBadge(Color color) {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(6)), child: Text(widget.task.attribute.name.toUpperCase(), style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)));
-  }
-
-  void _showSmartCalibrationDialog(BuildContext context) {
-    final controller = TextEditingController(text: widget.task.target.toInt().toString());
-    final bool hasToken = widget.mercyTokenAvailable;
-    showDialog(context: context, builder: (ctx) => AlertDialog(backgroundColor: const Color(0xFF151A25), title: Row(children: [Icon(Icons.tune, color: hasToken ? AscendTheme.accent : Colors.redAccent, size: 18), const SizedBox(width: 8), const Text("TACTICAL CALIBRATION", style: TextStyle(color: Colors.white, fontSize: 14))]), content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text(hasToken ? "Mercy Protocol active. Parameters can be adjusted freely." : "Mercy Protocol DEPLETED. Calibration requires XP Override.", style: TextStyle(color: hasToken ? AscendTheme.textDim : Colors.redAccent, fontSize: 12)), if (!hasToken) Padding(padding: const EdgeInsets.only(top: 8.0), child: Row(children: [const Text("COST: ", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), const Text("-150 XP", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold))])), const SizedBox(height: 20), TextField(controller: controller, keyboardType: TextInputType.number, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold), textAlign: TextAlign.center, decoration: const InputDecoration(filled: true, fillColor: Colors.black, border: OutlineInputBorder(borderSide: BorderSide.none)))]), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL", style: TextStyle(color: Colors.white38))), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: hasToken ? AscendTheme.secondary : Colors.redAccent), onPressed: () { final val = double.tryParse(controller.text); if (val != null && val > 0) { widget.onCalibrate(val, !hasToken); Navigator.pop(ctx); } }, child: Text(hasToken ? "CONFIRM" : "PAY XP & CONFIRM", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))]));
-  }
-
-  String _formatDuration(int totalMinutes) {
-    int m = totalMinutes % 60;
-    int h = (totalMinutes / 60).floor();
-    if (h > 0) return "${h}h ${m}m";
-    return "${m}m";
+    return isDone 
+      ? Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), decoration: BoxDecoration(color: AscendTheme.accent.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)), child: const Text("COMPLETED", style: TextStyle(color: AscendTheme.accent, fontWeight: FontWeight.bold)))
+      : ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: color.withValues(alpha: 0.2), foregroundColor: color), onPressed: onAction, child: const Text("MARK DONE"));
   }
 }
 
-// Utils (falls noch benötigt)
+class _Badge extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _Badge({required this.text, required this.color});
+  @override
+  Widget build(BuildContext context) {
+    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(6)), child: Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5)));
+  }
+}
+
+// Utils
 Color _getColor(ChallengeAttribute attr) {
   switch (attr) {
     case ChallengeAttribute.strength: return Colors.pinkAccent; 

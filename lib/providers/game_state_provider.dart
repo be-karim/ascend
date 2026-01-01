@@ -1,5 +1,6 @@
+import 'package:ascend/data/seed_data.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/widgets.dart'; 
+import 'package:flutter/widgets.dart'; // Für IconData
 import 'package:ascend/models/stats.dart';
 import 'package:ascend/models/challenge.dart';
 import 'package:ascend/models/template.dart';
@@ -10,7 +11,7 @@ import 'package:ascend/models/enums.dart';
 import 'package:ascend/repositories/hive_challenges_repository.dart';
 import 'package:ascend/services/xp_service.dart';
 
-// --- PROVIDERS ---
+// --- DEPENDENCY INJECTION ---
 
 final repositoryProvider = Provider<HiveChallengesRepository>((ref) {
   return HiveChallengesRepository();
@@ -20,7 +21,7 @@ final xpServiceProvider = Provider<XPService>((ref) {
   return XPService();
 });
 
-// --- STATE ---
+// --- STATE MODEL ---
 
 class GameState {
   final PlayerStats stats;
@@ -58,12 +59,15 @@ class GameState {
   }
 }
 
-// --- CONTROLLER ---
+// --- CONTROLLER (LOGIC ENGINE) ---
 
 class GameController extends Notifier<GameState> {
   @override
   GameState build() {
+    // Initialisierung asynchron starten
     Future.microtask(() => _init());
+    
+    // Leeren Start-Zustand zurückgeben
     return GameState(
       stats: const PlayerStats(
         strength: StatAttribute(),
@@ -85,6 +89,10 @@ class GameController extends Notifier<GameState> {
     await repo.init();
 
     await _performDailyResetIfNeeded(repo);
+    
+    await _seedLibraryIfNeeded(repo); 
+
+    await _seedRoutinesIfNeeded(repo);
 
     final templates = await repo.fetchTemplates();
     final routines = await repo.fetchRoutines();
@@ -102,7 +110,42 @@ class GameController extends Notifier<GameState> {
     );
   }
 
-  // --- TIME ENGINE: DAILY RESET ---
+  // --- NEW SEEDING LOGIC ---
+  Future<void> _seedLibraryIfNeeded(HiveChallengesRepository repo) async {
+    final currentTemplates = await repo.fetchTemplates();
+    final currentIds = currentTemplates.map((t) => t.id).toSet();
+    
+    bool hasChanges = false;
+
+    for (var seedItem in SeedData.initialProtocols) {
+      // Only add if it doesn't exist yet
+      if (!currentIds.contains(seedItem.id)) {
+        await repo.saveTemplate(seedItem);
+        hasChanges = true;
+      }
+    }
+    
+    if (hasChanges) {
+      debugPrint("Library seeded with new protocols.");
+    }
+  }
+
+  Future<void> _seedRoutinesIfNeeded(HiveChallengesRepository repo) async {
+    final currentRoutines = await repo.fetchRoutines();
+    // Only seed if NO routines exist (fresh start) to avoid duplicating if user deleted it
+    if (currentRoutines.isEmpty) {
+      final templates = await repo.fetchTemplates();
+      if (templates.isNotEmpty) {
+        final defaultRoutine = SeedData.getMorningRoutine(templates);
+        // Only create if we actually found the templates
+        if (defaultRoutine.templates.isNotEmpty) {
+           await repo.saveRoutine(defaultRoutine);
+        }
+      }
+    }
+  }
+
+  // --- DAILY RESET ---
 
   Future<void> _performDailyResetIfNeeded(HiveChallengesRepository repo) async {
     final lastOpened = repo.getLastOpenedDate();
@@ -113,43 +156,37 @@ class GameController extends Notifier<GameState> {
       return;
     }
 
-    if (!_isSameDay(lastOpened, now)) {
-      // 1. Archivieren
+    // Prüfen ob ein neuer Tag ist (Jahr, Monat oder Tag unterschiedlich)
+    if (lastOpened.year != now.year || lastOpened.month != now.month || lastOpened.day != now.day) {
+      
+      // 1. History Eintrag erstellen
       final active = await repo.fetchActiveChallenges();
       final completed = active.where((c) => c.isCompleted).toList();
-
+      
       if (completed.isNotEmpty) {
-        final historyEntry = HistoryEntry(
+        await repo.saveHistoryEntry(HistoryEntry(
           date: lastOpened,
           completedCount: completed.length,
           completedChallengeNames: completed.map((c) => c.name).toList(),
-        );
-        await repo.saveHistoryEntry(historyEntry);
+        ));
       }
 
-      // 2. Active Protocol Reset
+      // 2. Active Protocol Reset (Logs löschen, Status zurücksetzen)
       for (var challenge in active) {
         final resetChallenge = Challenge(
-          id: challenge.id,
-          templateId: challenge.templateId,
-          name: challenge.name,
-          logs: [], 
-          target: challenge.target,
-          unit: challenge.unit,
-          type: challenge.type,
-          attribute: challenge.attribute,
+          id: challenge.id, templateId: challenge.templateId, name: challenge.name,
+          logs: [], // Logs werden geleert -> Progress 0
+          target: challenge.target, unit: challenge.unit, type: challenge.type, attribute: challenge.attribute,
           dateAssigned: DateTime.now(),
           isRunning: false,
           completedAt: null,
-          isPriority: challenge.isPriority, 
+          isPriority: challenge.isPriority, // Prio bleibt erhalten
         );
         await repo.saveActiveChallenge(resetChallenge);
       }
       
-      // 3. Stats Reset (Mercy Token & evtl Streak Check)
+      // 3. Stats Reset (Mercy Token auffüllen)
       final currentStats = await repo.fetchPlayerStats();
-      // Hier könnte man prüfen: Wenn completedCount == 0, dann streak = 0.
-      // Für jetzt setzen wir nur Mercy Token zurück.
       final newStats = currentStats.copyWith(mercyTokenAvailable: true);
       await repo.savePlayerStats(newStats);
 
@@ -157,24 +194,14 @@ class GameController extends Notifier<GameState> {
     }
   }
 
-  bool _isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
-  }
-
-  // --- ACTIONS ---
+  // --- CRUD ACTIONS ---
 
   void addChallenge(ChallengeTemplate template) {
     final repo = ref.read(repositoryProvider);
     final newChallenge = Challenge(
       id: DateTime.now().millisecondsSinceEpoch.toString() + template.id,
-      templateId: template.id,
-      name: template.title,
-      logs: [],
-      target: template.defaultTarget,
-      unit: template.unit,
-      type: template.type,
-      attribute: template.attribute,
-      dateAssigned: DateTime.now(),
+      templateId: template.id, name: template.title, logs: [], target: template.defaultTarget,
+      unit: template.unit, type: template.type, attribute: template.attribute, dateAssigned: DateTime.now(),
       isPriority: false,
     );
     repo.saveActiveChallenge(newChallenge);
@@ -184,74 +211,53 @@ class GameController extends Notifier<GameState> {
   void removeChallenge(String id) {
     final repo = ref.read(repositoryProvider);
     repo.deleteActiveChallenge(id);
-    state = state.copyWith(
-      activeChallenges: state.activeChallenges.where((c) => c.id != id).toList(),
-    );
+    state = state.copyWith(activeChallenges: state.activeChallenges.where((c) => c.id != id).toList());
   }
 
   void togglePriority(String id) {
     final repo = ref.read(repositoryProvider);
     final updatedList = state.activeChallenges.map((c) {
       if (c.id == id) {
-        final updated = Challenge(
-          id: c.id,
-          templateId: c.templateId,
-          name: c.name,
-          logs: c.logs,
-          target: c.target,
-          unit: c.unit,
-          type: c.type,
-          attribute: c.attribute,
-          dateAssigned: c.dateAssigned,
-          isRunning: c.isRunning,
-          completedAt: c.completedAt,
-          isPriority: !c.isPriority, 
+        final u = Challenge(
+          id: c.id, templateId: c.templateId, name: c.name, logs: c.logs, target: c.target,
+          unit: c.unit, type: c.type, attribute: c.attribute, dateAssigned: c.dateAssigned,
+          isRunning: c.isRunning, completedAt: c.completedAt, isPriority: !c.isPriority
         );
-        repo.saveActiveChallenge(updated);
-        return updated;
+        repo.saveActiveChallenge(u);
+        return u;
       }
       return c;
     }).toList();
     state = state.copyWith(activeChallenges: updatedList);
   }
 
-  // UPDATE TARGET (SMART CALIBRATION)
+  // --- TACTICAL CALIBRATION (UPDATE TARGET) ---
+  
   void updateChallengeTarget(String id, double newTarget, {bool useXp = false}) {
     final repo = ref.read(repositoryProvider);
-    
     PlayerStats newStats = state.stats;
-    
+
+    // 1. Kosten berechnen
     if (useXp) {
-       // XP STRAFE: 150 XP abziehen
-       const double penalty = 150.0;
-       double newXp = (newStats.currentXp - penalty);
-       if (newXp < 0) newXp = 0;
-       
+       // XP Strafe
+       double newXp = (newStats.currentXp - 150.0).clamp(0.0, double.infinity);
        newStats = newStats.copyWith(currentXp: newXp);
     } else {
-       // MERCY TOKEN VERBRAUCHEN
+       // Mercy Token verbrauchen
        newStats = newStats.copyWith(mercyTokenAvailable: false);
     }
     repo.savePlayerStats(newStats);
 
+    // 2. Challenge Updaten
     final updatedList = state.activeChallenges.map((c) {
       if (c.id == id) {
-        final updated = Challenge(
-          id: c.id,
-          templateId: c.templateId,
-          name: c.name,
-          logs: c.logs,
-          target: newTarget,
-          unit: c.unit,
-          type: c.type,
-          attribute: c.attribute,
-          dateAssigned: c.dateAssigned,
-          isRunning: c.isRunning,
-          completedAt: c.completedAt,
-          isPriority: c.isPriority,
+        final u = Challenge(
+          id: c.id, templateId: c.templateId, name: c.name, logs: c.logs, target: newTarget,
+          unit: c.unit, type: c.type, attribute: c.attribute, dateAssigned: c.dateAssigned,
+          isRunning: c.isRunning, completedAt: c.completedAt, isPriority: c.isPriority
         );
-        repo.saveActiveChallenge(updated);
-        return updated;
+        repo.saveActiveChallenge(u);
+        return u;
       }
       return c;
     }).toList();
@@ -259,35 +265,30 @@ class GameController extends Notifier<GameState> {
     state = state.copyWith(activeChallenges: updatedList, stats: newStats);
   }
 
+  // --- TIMER LOGIC (SINGLE TASK RULE) ---
+
   void toggleTimer(String id, bool shouldRun) {
     final repo = ref.read(repositoryProvider);
-
     final updatedList = state.activeChallenges.map((c) {
       bool newRunningState = c.isRunning;
 
       if (c.id == id) {
+        // Die gewählte Task togglen
         newRunningState = shouldRun;
       } else if (shouldRun && c.isRunning) {
+        // SINGLE TASK RULE: Wenn eine neue Task startet (shouldRun=true), 
+        // müssen alle anderen gestoppt werden.
         newRunningState = false;
       }
 
       if (newRunningState != c.isRunning) {
-        final updated = Challenge(
-          id: c.id,
-          templateId: c.templateId,
-          name: c.name,
-          logs: c.logs,
-          target: c.target,
-          unit: c.unit,
-          type: c.type,
-          attribute: c.attribute,
-          dateAssigned: c.dateAssigned,
-          isRunning: newRunningState,
-          completedAt: c.completedAt,
-          isPriority: c.isPriority,
+        final u = Challenge(
+          id: c.id, templateId: c.templateId, name: c.name, logs: c.logs, target: c.target,
+          unit: c.unit, type: c.type, attribute: c.attribute, dateAssigned: c.dateAssigned,
+          isRunning: newRunningState, completedAt: c.completedAt, isPriority: c.isPriority
         );
-        repo.saveActiveChallenge(updated);
-        return updated;
+        repo.saveActiveChallenge(u);
+        return u;
       }
       return c;
     }).toList();
@@ -295,100 +296,115 @@ class GameController extends Notifier<GameState> {
     state = state.copyWith(activeChallenges: updatedList);
   }
 
+  // --- CORE PROGRESS LOGIC (THE HEARTBEAT) ---
+
   void updateProgress(String challengeId, double amount) {
     final repo = ref.read(repositoryProvider);
     final xpService = ref.read(xpServiceProvider);
-    int xpGained = 0; // Service liefert ggf. int zurück, wir addieren es aber auf double Stats
+    
+    // Speichert die gesamte XP Veränderung für diesen Update-Schritt
+    double xpChange = 0.0;
 
     final updatedList = state.activeChallenges.map((challenge) {
       if (challenge.id == challengeId) {
-        if (challenge.isCompleted && amount > 0) return challenge;
-
-        final bool wasCompleted = challenge.isCompleted;
-
+        // 1. Log erstellen (auch negative Werte für Slider-Rückgang erlauben)
         final newLog = ChallengeLog(timestamp: DateTime.now(), amount: amount);
         final updatedLogs = [...challenge.logs, newLog];
 
-        final updatedChallenge = Challenge(
-          id: challenge.id,
-          templateId: challenge.templateId,
-          name: challenge.name,
+        // Status VOR dem Update merken
+        final bool wasCompleted = challenge.isCompleted;
+
+        // Temporäre Challenge bauen, um 'current' neu zu berechnen
+        final tempChallenge = Challenge(
+          id: challenge.id, templateId: challenge.templateId, name: challenge.name,
           logs: updatedLogs,
-          target: challenge.target,
-          unit: challenge.unit,
-          type: challenge.type,
-          attribute: challenge.attribute,
-          dateAssigned: challenge.dateAssigned,
-          isRunning: challenge.isRunning,
-          completedAt: challenge.completedAt,
-          isPriority: challenge.isPriority,
+          target: challenge.target, unit: challenge.unit, type: challenge.type, attribute: challenge.attribute,
+          dateAssigned: challenge.dateAssigned, isRunning: challenge.isRunning, completedAt: challenge.completedAt, isPriority: challenge.isPriority
         );
 
-        final bool nowCompleted = updatedChallenge.isCompleted;
+        // Status NACH dem Update prüfen
+        // Toleranz für Floating Point Ungenauigkeiten
+        final bool nowCompleted = tempChallenge.current >= tempChallenge.target - 0.01;
 
-        xpGained += xpService.calculateXP(updatedChallenge, amount);
-
-        if (!wasCompleted && nowCompleted) {
-          xpGained += xpService.calculateCompletionBonus(updatedChallenge);
-          
-          final completedChallenge = Challenge(
-            id: updatedChallenge.id,
-            templateId: updatedChallenge.templateId,
-            name: updatedChallenge.name,
-            logs: updatedLogs,
-            target: updatedChallenge.target,
-            unit: updatedChallenge.unit,
-            type: updatedChallenge.type,
-            attribute: updatedChallenge.attribute,
-            dateAssigned: updatedChallenge.dateAssigned,
-            isRunning: false,
-            completedAt: DateTime.now(),
-            isPriority: updatedChallenge.isPriority,
-          );
-          repo.saveActiveChallenge(completedChallenge);
-          return completedChallenge;
+        // 2. Basis XP berechnen
+        // Wir berechnen XP für den Betrag (amount). 
+        // calculateXP gibt immer positiven Int zurück. Wir müssen das Vorzeichen beachten.
+        int calculatedBaseXP = xpService.calculateXP(tempChallenge, amount);
+        if (amount < 0) {
+          xpChange -= calculatedBaseXP; // Abziehen
+        } else {
+          xpChange += calculatedBaseXP; // Addieren
         }
 
-        repo.saveActiveChallenge(updatedChallenge);
-        return updatedChallenge;
+        // 3. Completion Bonus / Malus
+        if (!wasCompleted && nowCompleted) {
+          // Gerade fertig geworden -> Bonus drauf
+          xpChange += xpService.calculateCompletionBonus(tempChallenge);
+        } else if (wasCompleted && !nowCompleted) {
+          // War fertig, jetzt nicht mehr (Slider zurück) -> Bonus weg
+          xpChange -= xpService.calculateCompletionBonus(tempChallenge);
+        }
+
+        // 4. Finales Objekt erstellen
+        final finalChallenge = Challenge(
+          id: tempChallenge.id, templateId: tempChallenge.templateId, name: tempChallenge.name, logs: tempChallenge.logs, target: tempChallenge.target, unit: tempChallenge.unit, type: tempChallenge.type, attribute: tempChallenge.attribute, dateAssigned: tempChallenge.dateAssigned,
+          // Timer stoppen wenn fertig
+          isRunning: nowCompleted ? false : tempChallenge.isRunning, 
+          // Datum setzen wenn fertig, sonst null
+          completedAt: nowCompleted ? (tempChallenge.completedAt ?? DateTime.now()) : null, 
+          isPriority: tempChallenge.isPriority
+        );
+
+        repo.saveActiveChallenge(finalChallenge);
+        return finalChallenge;
       }
       return challenge;
     }).toList();
 
-    // Stats Update
+    // 5. Stats Update (Global & Attribut)
     PlayerStats newStats = state.stats;
-    if (xpGained > 0) {
+    
+    if (xpChange != 0) {
       final currentChallenge = state.activeChallenges.firstWhere((c) => c.id == challengeId);
-      final attr = currentChallenge.attribute;
+      final attrType = currentChallenge.attribute;
+      
+      // Global XP Update
+      double newGlobalXp = (newStats.currentXp + xpChange).clamp(0.0, double.infinity);
+      
+      // Global Level Neuberechnung passiert am besten basierend auf Attributen, 
+      // aber hier machen wir es simpel über XP oder über Attribute:
+      
+      // Attribut XP Update
       StatAttribute updatedAttr;
-
-      switch (attr) {
+      switch (attrType) {
         case ChallengeAttribute.strength:
-          updatedAttr = xpService.applyXP(newStats.strength, xpGained);
+          updatedAttr = xpService.applyXP(newStats.strength, xpChange);
           newStats = newStats.copyWith(strength: updatedAttr);
           break;
         case ChallengeAttribute.agility:
-          updatedAttr = xpService.applyXP(newStats.agility, xpGained);
+          updatedAttr = xpService.applyXP(newStats.agility, xpChange);
           newStats = newStats.copyWith(agility: updatedAttr);
           break;
         case ChallengeAttribute.intelligence:
-          updatedAttr = xpService.applyXP(newStats.intelligence, xpGained);
+          updatedAttr = xpService.applyXP(newStats.intelligence, xpChange);
           newStats = newStats.copyWith(intelligence: updatedAttr);
           break;
         case ChallengeAttribute.discipline:
-          updatedAttr = xpService.applyXP(newStats.discipline, xpGained);
+          updatedAttr = xpService.applyXP(newStats.discipline, xpChange);
           newStats = newStats.copyWith(discipline: updatedAttr);
           break;
       }
 
+      // Globale Werte neu berechnen (Level basiert auf Summe der Attribute)
       final newGlobalLevel = xpService.calculateGlobalLevel(newStats);
       final newMaxXp = xpService.calculateMaxXpForGlobalLevel(newGlobalLevel);
 
       newStats = newStats.copyWith(
-        currentXp: newStats.currentXp + xpGained,
+        currentXp: newGlobalXp, // Wir nutzen hier die Summe als Anzeige oder separiert, je nach Design
         globalLevel: newGlobalLevel,
-        maxXp: newMaxXp.toDouble(), // Ensure double
+        maxXp: newMaxXp,
       );
+
       repo.savePlayerStats(newStats);
     }
 
@@ -396,11 +412,19 @@ class GameController extends Notifier<GameState> {
   }
 
   // --- ROUTINE HELPERS ---
-  // (unverändert wie im vorherigen Code)
+
   void addRoutine(RoutineStack stack) {
     for (var template in stack.templates) {
       addChallenge(template);
     }
+  }
+
+  void updateRoutine(RoutineStack updatedStack) {
+    final repo = ref.read(repositoryProvider);
+    repo.saveRoutine(updatedStack);
+    
+    final updatedList = state.routines.map((r) => r.id == updatedStack.id ? updatedStack : r).toList();
+    state = state.copyWith(routines: updatedList);
   }
 
   void createRoutine(String title, dynamic icon, List<ChallengeTemplate> selectedTemplates) {
@@ -430,4 +454,5 @@ class GameController extends Notifier<GameState> {
   }
 }
 
+// Globaler Provider Access Point
 final gameProvider = NotifierProvider<GameController, GameState>(GameController.new);

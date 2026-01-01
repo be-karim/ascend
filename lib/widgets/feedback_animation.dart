@@ -26,9 +26,10 @@ class _FeedbackAnimationState extends State<FeedbackAnimation> {
 
   void addPopup(Offset position, String text, Color color) {
     final id = DateTime.now().microsecondsSinceEpoch.toString();
-    if(mounted) setState(() => _entries.add(_FeedbackEntry(id, position, text, color)));
+    if (mounted) setState(() => _entries.add(_FeedbackEntry(id, position, text, color)));
     
-    Future.delayed(const Duration(milliseconds: 1000), () {
+    // DAUER AUF 3 SEKUNDEN ERHÖHT
+    Future.delayed(const Duration(milliseconds: 3000), () {
       if (mounted) setState(() => _entries.removeWhere((e) => e.id == id));
     });
   }
@@ -45,18 +46,21 @@ class _FeedbackAnimationState extends State<FeedbackAnimation> {
 
   Widget _buildPopup(_FeedbackEntry entry) {
     return Positioned(
-      left: entry.position.dx - 50,
+      left: entry.position.dx - 50, // Zentrieren (Textbreite ca 100)
       top: entry.position.dy - 50,
       child: IgnorePointer(
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.0, end: 1.0),
-          duration: const Duration(milliseconds: 800),
-          curve: Curves.easeOutExpo,
+          // LANGSAME ANIMATION (3 Sekunden)
+          duration: const Duration(milliseconds: 3000),
+          curve: Curves.easeOutQuart, // Sanftes Ausschweben
           builder: (context, val, child) {
             return Transform.translate(
-              offset: Offset(0, -60 * val),
+              // Schwebt höher (120px statt 60px)
+              offset: Offset(0, -120 * val),
               child: Opacity(
-                opacity: (1.0 - val).clamp(0.0, 1.0),
+                // Bleibt länger sichtbar, faded erst im letzten Drittel
+                opacity: (1.0 - (val - 0.7) * 3.3).clamp(0.0, 1.0),
                 child: SizedBox(
                   width: 100,
                   child: Text(
@@ -64,9 +68,12 @@ class _FeedbackAnimationState extends State<FeedbackAnimation> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: entry.color, 
-                      fontSize: 16 + (4 * val),
+                      fontSize: 16 + (2 * val), // Wächst minimal
                       fontWeight: FontWeight.w900,
-                      shadows: [const Shadow(color: Colors.black, blurRadius: 4)]
+                      shadows: [
+                        Shadow(color: Colors.black.withValues(alpha: 0.8), blurRadius: 4),
+                        Shadow(color: entry.color.withValues(alpha: 0.4), blurRadius: 12) // Glow
+                      ]
                     ),
                   ),
                 ),

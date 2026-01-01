@@ -1,93 +1,102 @@
-import 'dart:math';
-import 'package:ascend/models/enums.dart';
 import 'package:ascend/models/challenge.dart';
+import 'package:ascend/models/enums.dart';
 import 'package:ascend/models/stats.dart';
 
 class XPService {
-  // Grundwert für XP pro Challenge (bevor Multiplikatoren)
-  static const int BASE_ACTION_XP = 10;
+  // --- BALANCING KONSTANTEN ---
+  static const double baseXPPerUnit = 1.0;
+  static const int completionBonus = 100;
   
-  // Exponent für die Level-Kurve (höher = schwieriger im Lategame)
-  static const double LEVEL_EXPONENT = 1.6;
-  static const int BASE_LEVEL_XP = 100;
+  // Schwierigkeits-Multiplikatoren
+  static const double multStrength = 1.0;
+  static const double multAgility = 1.0;
+  static const double multIntel = 1.2; // Intelligence gibt mehr XP
+  static const double multDiscipline = 1.1;
 
-  /// Berechnet XP basierend auf Challenge-Typ und Menge
-  int calculateXP(Challenge challenge, double amountDone) {
-    if (amountDone <= 0) return 0;
+  /// Berechnet die XP für einen bestimmten Fortschritts-Schritt (Delta).
+  /// Gibt immer einen positiven Wert zurück. Ob addiert oder subtrahiert wird,
+  /// entscheidet der Controller basierend auf der Slider-Richtung.
+  int calculateXP(Challenge challenge, double amount) {
+    double absAmount = amount.abs();
+    double xpFactor = 1.0;
 
-    double multiplier = 1.0;
-    
-    // Balancing der Einheiten
     switch (challenge.type) {
+      case ChallengeType.reps:
+        xpFactor = 0.5; // Reps sind schnell gemacht
+        break;
       case ChallengeType.time:
-        // 1 Minute = 1.0 Basispunkte (z.B.)
-        multiplier = 1.0; 
+        xpFactor = 2.0; // Zeit ist wertvoll (pro Minute)
         break;
       case ChallengeType.hydration:
-        // 100ml = 1 Punkt
-        multiplier = 0.01; 
-        break;
-      case ChallengeType.reps:
-        // 1 Rep = 0.5 Punkte (hängt stark von der Übung ab, hier pauschal)
-        multiplier = 0.5; 
+        xpFactor = 0.05; // Milliliter sind kleine Einheiten
         break;
       case ChallengeType.boolean:
-        // Checkbox = Fester Wert
-        return 50; 
+        xpFactor = 50.0; // Einmalige Aktion
+        break;
     }
 
-    // Ergebnis: amount * multiplier * difficulty_bonus (optional)
-    int xp = (amountDone * multiplier * BASE_ACTION_XP).floor();
-    return max(1, xp); // Mindestens 1 XP
+    // Attribut-Bonus anwenden
+    switch (challenge.attribute) {
+      case ChallengeAttribute.strength: xpFactor *= multStrength; break;
+      case ChallengeAttribute.agility: xpFactor *= multAgility; break;
+      case ChallengeAttribute.intelligence: xpFactor *= multIntel; break;
+      case ChallengeAttribute.discipline: xpFactor *= multDiscipline; break;
+    }
+
+    return (absAmount * xpFactor).ceil();
   }
 
+  /// Gibt den fixen Bonus für das Abschließen einer Challenge zurück.
   int calculateCompletionBonus(Challenge challenge) {
-    // Großer Bonus für das Abschließen
-    return 50;
+    // Man könnte hier noch Logik einbauen, dass schwere Challenges mehr Bonus geben.
+    return completionBonus;
   }
 
-  /// Prüft auf Level-Up und gibt das aktualisierte Attribut zurück
-  StatAttribute applyXP(StatAttribute stat, int xpAmount) {
-    double newCurrent = stat.currentXp + xpAmount;
-    int newLevel = stat.level;
-    double newMax = stat.maxXp;
-    int newTier = stat.tier;
+  /// Wendet XP auf ein Attribut an und handhabt Level Up / Level Down.
+  StatAttribute applyXP(StatAttribute attr, double xpChange) {
+    double newCurrent = attr.currentXp + xpChange;
+    int newLevel = attr.level;
+    double newMax = attr.maxXp;
 
-    // Level-Up Schleife (falls man so viel XP bekommt, dass man mehrere Level aufsteigt)
+    // --- LEVEL UP LOGIK ---
     while (newCurrent >= newMax) {
       newCurrent -= newMax;
       newLevel++;
-
-      // Tier Ascension Check (Soft Cap bei Level 100)
-      if (newLevel > 100) {
-        newLevel = 1;
-        newTier++;
-        // Hier könnte man den Nutzer benachrichtigen (Return-Typ anpassen oder Event feuern)
-      }
-
-      // Neue Max XP berechnen für das nächste Level
-      // Formel: 100 * (Level ^ 1.6) * (1.2 ^ Tier) -> Tier macht es auch schwerer
-      newMax = (BASE_LEVEL_XP * pow(newLevel, LEVEL_EXPONENT) * pow(1.1, newTier)).floor() as double;
+      // Kurve: Jedes Level braucht 20% mehr XP als das vorherige
+      newMax *= 1.2; 
     }
 
-    return stat.copyWith(
+    // --- LEVEL DOWN LOGIK (Strafe) ---
+    while (newCurrent < 0) {
+      if (newLevel > 1) {
+        newLevel--;
+        newMax /= 1.2; // Vorheriges Max wiederherstellen
+        newCurrent += newMax; // XP vom vorherigen Level "auffüllen"
+      } else {
+        // Wir sind Level 1 und gehen unter 0 -> Cap bei 0
+        newCurrent = 0;
+        break;
+      }
+    }
+
+    return attr.copyWith(
       level: newLevel,
       currentXp: newCurrent,
       maxXp: newMax,
-      tier: newTier,
     );
   }
-  
-  /// Helper um den "Global Level" zu berechnen (Durchschnitt aller Stats + Tiers)
+
+  /// Berechnet das globale Level basierend auf den 4 Attributen (Durchschnitt).
   int calculateGlobalLevel(PlayerStats stats) {
-    int totalLevels = stats.strength.level + stats.agility.level + stats.intelligence.level + stats.discipline.level;
-    int totalTiers = stats.strength.tier + stats.agility.tier + stats.intelligence.tier + stats.discipline.tier;
-    
-    // Ein Tier ist wie 100 virtuelle Level wert
-    return (totalLevels + (totalTiers * 100)) ~/ 4;
+    final sum = stats.strength.level + 
+                stats.agility.level + 
+                stats.intelligence.level + 
+                stats.discipline.level;
+    return (sum / 4).floor();
   }
 
-  int calculateMaxXpForGlobalLevel(int level) {
-    return (1000 * pow(level, 1.2)).floor(); // Flachere Kurve für den Anfang
+  /// Berechnet Max XP für das globale Level (für die Progress Bar im Header oder Profil).
+  double calculateMaxXpForGlobalLevel(int level) {
+    return 1000.0 * (1 + (level * 0.1));
   }
 }

@@ -1,129 +1,68 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:ascend/screens/home_screen.dart';
+import 'package:ascend/theme.dart';
+import 'package:ascend/screens/hud_screen.dart';
 import 'package:ascend/screens/daily_log_screen.dart';
 import 'package:ascend/screens/mission_control_screen.dart';
-import 'package:ascend/screens/stats_screen.dart';
-import 'package:ascend/theme.dart';
+import 'package:ascend/screens/profile_screen.dart'; // NEU
+import 'package:ascend/providers/nav_provider.dart';
 
-class MainScaffold extends ConsumerStatefulWidget {
+class MainScaffold extends ConsumerWidget {
   const MainScaffold({super.key});
 
   @override
-  ConsumerState<MainScaffold> createState() => _MainScaffoldState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentIndex = ref.watch(navIndexProvider);
 
-class _MainScaffoldState extends ConsumerState<MainScaffold> {
-  int _currentIndex = 0;
+    final List<Widget> screens = [
+      const HUDScreen(),
+      const DailyLogScreen(),
+      const MissionControlScreen(),
+      const ProfileScreen(), // UPDATE HIER
+    ];
 
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const DailyLogScreen(),
-    const MissionControlScreen(),
-    const StatsScreen(),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          // Global Grid Background for cohesiveness
-          Positioned.fill(
-            child: Opacity(
-              opacity: 0.03,
-              child: CustomPaint(painter: GridPainter()),
-            ),
-          ),
-          SafeArea(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: _screens,
-            ),
-          ),
-        ],
+      backgroundColor: const Color(0xFF050505),
+      body: IndexedStack(
+        index: currentIndex,
+        children: screens,
       ),
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.05))),
-          color: AscendTheme.background.withValues(alpha: 0.95),
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: Colors.white10, width: 1)),
         ),
-        child: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
-          backgroundColor: Colors.transparent,
-          selectedItemColor: AscendTheme.secondary,
-          unselectedItemColor: AscendTheme.textDim,
-          type: BottomNavigationBarType.fixed,
-          showUnselectedLabels: true,
-          selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 1.0),
-          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 10),
-          elevation: 0,
-          items: [
-            const BottomNavigationBarItem(
+        child: NavigationBar(
+          selectedIndex: currentIndex,
+          onDestinationSelected: (index) {
+            ref.read(navIndexProvider.notifier).setIndex(index);
+          },
+          backgroundColor: const Color(0xFF050505),
+          indicatorColor: AscendTheme.primary.withValues(alpha: 0.2),
+          destinations: const [
+            NavigationDestination(
               icon: Icon(Icons.dashboard_outlined),
-              activeIcon: Icon(Icons.dashboard),
+              selectedIcon: Icon(Icons.dashboard, color: AscendTheme.primary),
               label: 'HUD',
             ),
-            // THE HIGHLIGHTED EXECUTE TAB
-            BottomNavigationBarItem(
-              icon: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AscendTheme.textDim.withValues(alpha: 0.5), width: 1),
-                ),
-                child: const Icon(Icons.my_location), // "Target" icon
-              ),
-              activeIcon: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: AscendTheme.secondary.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AscendTheme.secondary, width: 2),
-                  boxShadow: [
-                    BoxShadow(color: AscendTheme.secondary.withValues(alpha: 0.5), blurRadius: 8)
-                  ]
-                ),
-                child: const Icon(Icons.my_location, color: AscendTheme.secondary),
-              ),
-              label: 'EXECUTE',
+            NavigationDestination(
+              icon: Icon(Icons.list_alt_outlined),
+              selectedIcon: Icon(Icons.list_alt, color: AscendTheme.primary),
+              label: 'OPS',
             ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.map_outlined),
-              activeIcon: Icon(Icons.map),
-              label: 'PLAN',
+            NavigationDestination(
+              icon: Icon(Icons.hub_outlined),
+              selectedIcon: Icon(Icons.hub, color: AscendTheme.primary),
+              label: 'Library',
             ),
-            const BottomNavigationBarItem(
+            // UPDATE LABEL
+            NavigationDestination(
               icon: Icon(Icons.person_outline),
-              activeIcon: Icon(Icons.person),
-              label: 'PROFILE',
+              selectedIcon: Icon(Icons.person, color: AscendTheme.primary),
+              label: 'BARRACKS', 
             ),
           ],
         ),
       ),
     );
   }
-}
-
-// Reusing the GridPainter from Onboarding for consistent design language
-class GridPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AscendTheme.secondary.withValues(alpha: 0.1)
-      ..strokeWidth = 1;
-
-    const double gridSize = 40;
-
-    for (double i = 0; i < size.width; i += gridSize) {
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
-    }
-    for (double i = 0; i < size.height; i += gridSize) {
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
