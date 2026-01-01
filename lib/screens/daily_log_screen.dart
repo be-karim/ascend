@@ -23,8 +23,6 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
   final ConfettiController _confettiController = ConfettiController();
   TabCategory _selectedTab = TabCategory.all;
   String _searchQuery = "";
-  
-  // Set für Aufgaben, die "fertig" sind, aber noch kurz angezeigt werden (Grace Period)
   final Set<String> _recentlyCompleted = {};
 
   @override
@@ -32,7 +30,7 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
     final gameState = ref.watch(gameProvider);
     final allChallenges = gameState.activeChallenges;
 
-    // 1. FILTERN (Suche + Tab)
+    // Filter Logic
     final filtered = allChallenges.where((c) {
       if (_searchQuery.isNotEmpty) {
         return c.name.toLowerCase().contains(_searchQuery.toLowerCase());
@@ -45,21 +43,17 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
       }
     }).toList();
 
-    // 2. KATEGORISIERUNG
-    // Wir zeigen "Completed" tasks NICHT in den Hauptlisten an (außer Grace Period)
+    // Kategorisierung
     final activeTasks = filtered.where((c) => !c.isCompleted || _recentlyCompleted.contains(c.id)).toList();
     final completedTasks = filtered.where((c) => c.isCompleted && !_recentlyCompleted.contains(c.id)).toList();
 
     // Sortierung
     activeTasks.sort((a, b) => a.isPriority != b.isPriority ? (a.isPriority ? -1 : 1) : 0);
 
-    // Splitten
     final priorities = activeTasks.where((c) => c.isPriority).toList();
-    
-    // Side Ops: Hydration & Boolean (Checkbox) Tasks
+    // Side Ops (Checkboxen/Wasser)
     final sideOps = activeTasks.where((c) => !c.isPriority && (c.type == ChallengeType.hydration || c.type == ChallengeType.boolean)).toList();
-    
-    // Standard Ops: Der Rest (Reps/Time, die keine Prio sind)
+    // Standard Ops (Alles mit Slider/Timer, was nicht Prio ist)
     final standardOps = activeTasks.where((c) => !c.isPriority && c.type != ChallengeType.hydration && c.type != ChallengeType.boolean).toList();
 
     return Scaffold(
@@ -70,10 +64,14 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
           child: SafeArea(
             child: Column(
               children: [
+                // HEADER MIT PROGRESS BAR
                 _buildDailyHeader(allChallenges),
                 const SizedBox(height: 10),
+                
+                // SEARCH BAR (NEU GESTYLT)
                 _buildSearchBar(),
                 const SizedBox(height: 16),
+                
                 _buildTabs(),
                 const SizedBox(height: 10),
 
@@ -81,7 +79,7 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     children: [
-                      // SEKTION 1: PRIORITY TARGETS
+                      // SEKTION 1: PRIORITY
                       if (priorities.isNotEmpty) ...[
                         _buildSectionHeader("PRIORITY TARGETS", Icons.star, AscendTheme.accent),
                         ...priorities.map((c) => _buildCard(c, true, gameState.stats.mercyTokenAvailable)),
@@ -90,21 +88,20 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
                         const SizedBox(height: 20),
                       ],
 
-                      // SEKTION 2: STANDARD OPERATIONS (Backlog)
+                      // SEKTION 2: STANDARD OPERATIONS
                       if (standardOps.isNotEmpty) ...[
                         _buildSectionHeader("STANDARD OPERATIONS", Icons.list_alt, Colors.white70),
                         ...standardOps.map((c) => _buildCard(c, false, gameState.stats.mercyTokenAvailable)),
                         const SizedBox(height: 20),
                       ],
 
-                      // SEKTION 3: SIDE OPS (Quick Tasks)
+                      // SEKTION 3: SIDE OPS
                       if (sideOps.isNotEmpty) ...[
                         _buildSectionHeader("SIDE OPS", Icons.bolt, Colors.cyanAccent),
-                        // Side Ops als Grid oder kompakte Liste
                         ...sideOps.map((c) => _buildCard(c, false, gameState.stats.mercyTokenAvailable)),
                       ],
 
-                      // SEKTION 4: MISSION DEBRIEF (Completed)
+                      // SEKTION 4: COMPLETED
                       if (completedTasks.isNotEmpty) ...[
                         const SizedBox(height: 30),
                         Center(child: Text("MISSION DEBRIEF", style: TextStyle(color: Colors.white.withValues(alpha: 0.3), letterSpacing: 2.0, fontSize: 10, fontWeight: FontWeight.bold))),
@@ -124,12 +121,112 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
     );
   }
 
+  // --- WIDGETS ---
+
+// ... imports ...
+
+// In _DailyLogScreenState Klasse:
+
+  Widget _buildDailyHeader(List<Challenge> challenges) {
+     // 1. ECHTE GAMIFICATION BERECHNUNG
+     // Wir zählen nicht nur "fertige", sondern summieren den %-Fortschritt jeder Aufgabe.
+     double totalProgressSum = 0.0;
+     int totalTasks = challenges.length;
+     int completedCount = 0;
+
+     for (var c in challenges) {
+       if (c.isCompleted) completedCount++;
+       // Addiere den prozentualen Fortschritt (max 1.0)
+       totalProgressSum += (c.current / c.target).clamp(0.0, 1.0);
+     }
+
+     // Durchschnittlicher Fortschritt des Tages (0.0 bis 1.0)
+     double overallProgress = totalTasks == 0 ? 0.0 : totalProgressSum / totalTasks;
+     
+     return Padding(
+       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+       child: Container(
+         padding: const EdgeInsets.all(16),
+         decoration: BoxDecoration(
+           color: const Color(0xFF151A25),
+           borderRadius: BorderRadius.circular(16),
+           border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+         ),
+         child: Row(
+           mainAxisAlignment: MainAxisAlignment.spaceBetween,
+           children: [
+             Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               children: [
+                 const Text("DAILY STATUS", style: TextStyle(color: AscendTheme.textDim, fontSize: 10, letterSpacing: 2.0, fontWeight: FontWeight.bold)),
+                 const SizedBox(height: 4),
+                 // Zeigt weiterhin "Done Count", aber der Ring zeigt "Effort"
+                 Text(
+                   "$completedCount / $totalTasks OPS DONE", 
+                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)
+                 ),
+               ],
+             ),
+             // PROGRESS CIRCLE
+             Stack(
+               alignment: Alignment.center,
+               children: [
+                 SizedBox(
+                   width: 50, height: 50,
+                   child: CircularProgressIndicator(
+                     value: overallProgress, // <-- HIER IST DER FIX
+                     color: AscendTheme.primary,
+                     backgroundColor: Colors.white10,
+                     strokeWidth: 5,
+                     strokeCap: StrokeCap.round,
+                   ),
+                 ),
+                 Text(
+                   "${(overallProgress * 100).toInt()}%", 
+                   style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)
+                 ),
+               ],
+             )
+           ],
+         ),
+       ),
+     );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: TextField(
+        style: const TextStyle(color: Colors.white, fontSize: 14), // KLEINERE SCHRIFT
+        cursorColor: AscendTheme.secondary,
+        decoration: InputDecoration(
+          hintText: "SEARCH OPERATIONS...",
+          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2), fontSize: 12, letterSpacing: 1.0),
+          prefixIcon: const Icon(Icons.search, color: AscendTheme.textDim, size: 20), // ICON
+          filled: true,
+          fillColor: const Color(0xFF0F1522),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12), 
+            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1))
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12), 
+            borderSide: const BorderSide(color: AscendTheme.secondary, width: 1)
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+          isDense: true,
+        ),
+        onChanged: (val) => setState(() => _searchQuery = val),
+      ),
+    );
+  }
+
   Widget _buildSectionHeader(String title, IconData icon, Color color) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12, top: 4),
       child: Row(
         children: [
-          Icon(icon, size: 12, color: color),
+          Icon(icon, size: 14, color: color),
           const SizedBox(width: 8),
           Text(title, style: TextStyle(color: color, fontSize: 10, letterSpacing: 2.0, fontWeight: FontWeight.bold)),
         ],
@@ -137,6 +234,7 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
     );
   }
 
+  // Karten Builder
   Widget _buildCard(Challenge task, bool isPriority, bool mercyAvailable) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -160,35 +258,26 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
     );
   }
 
-  // LOGIC: MAX 3 PRIORITY
+  // --- LOGIC ---
   void _handlePriorityToggle(String id, bool currentlyPriority) {
     final notifier = ref.read(gameProvider.notifier);
-    
-    // Wenn wir es entfernen wollen: Immer okay
     if (currentlyPriority) {
       notifier.togglePriority(id);
       HapticFeedback.mediumImpact();
       return;
     }
-
-    // Wenn wir es hinzufügen wollen: Check Limit
     final currentPriorities = ref.read(gameProvider).activeChallenges.where((c) => c.isPriority).length;
-    
     if (currentPriorities >= 3) {
-      // LIMIT REACHED
       HapticFeedback.vibrate();
       _showPriorityLimitDialog(id);
     } else {
-      // OKAY
       notifier.togglePriority(id);
       HapticFeedback.heavyImpact();
     }
   }
 
   void _showPriorityLimitDialog(String newChallengeId) {
-    // Finde die älteste Priority Task (vereinfacht: die erste in der Liste)
     final oldPrio = ref.read(gameProvider).activeChallenges.firstWhere((c) => c.isPriority);
-
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -200,8 +289,8 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AscendTheme.accent),
             onPressed: () {
-              ref.read(gameProvider.notifier).togglePriority(oldPrio.id); // Alte raus
-              ref.read(gameProvider.notifier).togglePriority(newChallengeId); // Neue rein
+              ref.read(gameProvider.notifier).togglePriority(oldPrio.id);
+              ref.read(gameProvider.notifier).togglePriority(newChallengeId);
               Navigator.pop(ctx);
             }, 
             child: const Text("SWAP TARGETS", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold))
@@ -212,49 +301,19 @@ class _DailyLogScreenState extends ConsumerState<DailyLogScreen> {
   }
 
   void _logProgress(Challenge task, double amount) {
-    // 1. Progress im State updaten
     ref.read(gameProvider.notifier).updateProgress(task.id, amount);
-    
-    // 2. Check Completion für UI Delay
-    // Da wir den State noch nicht neu geholt haben, rechnen wir manuell
     double newCurrent = task.current + amount;
     bool isNowDone = newCurrent >= task.target;
-
-    if (isNowDone && !task.isCompleted) { // Nur wenn es GERADE fertig wurde
+    if (isNowDone && !task.isCompleted) {
       _confettiController.play();
       HapticFeedback.heavyImpact();
-      
-      // Zur "Recently Completed" Liste hinzufügen, damit es noch kurz sichtbar bleibt
       setState(() => _recentlyCompleted.add(task.id));
-      
-      // Nach 2.5 Sekunden aus der "Recently" Liste entfernen -> UI verschiebt es nach unten
       Future.delayed(const Duration(milliseconds: 2500), () {
         if(mounted) setState(() => _recentlyCompleted.remove(task.id));
       });
     }
   }
 
-  Widget _buildDailyHeader(List<Challenge> challenges) {
-     final completed = challenges.where((c) => c.isCompleted).length;
-     double progress = challenges.isEmpty ? 0 : completed / challenges.length;
-     return Padding(
-       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-       child: Row(
-         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-         children: [
-           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-             const Text("DAILY STATUS", style: TextStyle(color: AscendTheme.textDim, fontSize: 10, letterSpacing: 2.0, fontWeight: FontWeight.bold)),
-             Text("$completed / ${challenges.length} OPS DONE", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.white)),
-           ]),
-           CircularProgressIndicator(value: progress, color: AscendTheme.primary, backgroundColor: Colors.white10),
-         ],
-       ),
-     );
-  }
-
-  // ... (Restliche Methoden wie _buildSearchBar, _buildTabs bleiben gleich) ...
-  Widget _buildSearchBar() => Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: TextField(style: const TextStyle(color: Colors.white), decoration: InputDecoration(hintText: "SEARCH OPERATIONS...", filled: true, fillColor: const Color(0xFF0F1522), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)), onChanged: (val) => setState(() => _searchQuery = val)));
-  
   Widget _buildTabs() => SizedBox(height: 36, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 20), children: [_tabBtn(TabCategory.all, "ALL"), _tabBtn(TabCategory.body, "BODY", Colors.pinkAccent), _tabBtn(TabCategory.mind, "MIND", Colors.cyanAccent), _tabBtn(TabCategory.grind, "GRIND", const Color(0xFF69F0AE))]));
   
   Widget _tabBtn(TabCategory cat, String label, [Color c = Colors.white]) => GestureDetector(onTap: () => setState(() => _selectedTab = cat), child: Container(margin: const EdgeInsets.only(right: 8), padding: const EdgeInsets.symmetric(horizontal: 16), alignment: Alignment.center, decoration: BoxDecoration(color: _selectedTab == cat ? c.withOpacity(0.2) : Colors.white10, borderRadius: BorderRadius.circular(20), border: Border.all(color: _selectedTab == cat ? c : Colors.transparent)), child: Text(label, style: TextStyle(color: _selectedTab == cat ? c : Colors.white38, fontSize: 10, fontWeight: FontWeight.bold))));
